@@ -1,0 +1,1 @@
+*.bam\n*.fastq\n*.fastq.gz\n*.idat\ndata/\nresults/
