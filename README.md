@@ -44,6 +44,7 @@ MethylBench/
 │   │   ├── 05_parse_toulligqc.py	       	# Summarize over ToulligQC .data files into one QC table        
 │   └── R/
 │       ├── 06_visualize_toulligqc_summary.R 	# Visualization for ONT QC reports.   		
+│       └── helpers.R				# Helper functionality.
 │
 ├── envs/
 │   ├── environment.yml				# Basic environment, Tools and Python utility
@@ -61,10 +62,12 @@ MethylBench/
 
 - [Conda](https://docs.conda.io/en/latest/) >= 23.x
 - [Nextflow](https://www.nextflow.io/) >= 20.x
+- [Singularity](https://docs.sylabs.io/guides/3.5/user-guide/introduction.html) >= 3.x
 - R >= 4.3
 - Python >= 3.10
 
 All tool-specific dependencies are managed via Conda environments defined in `envs/`.
+
 ---
 
 ## Quick Start
