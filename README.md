@@ -41,18 +41,9 @@ MethylBench/
 │   │   ├── 03_pbcpgtools.sh			# pb-cpg-tools, extract methylation information from PacBio alignment files.         		
 │   │   └── 04_methylseq.sh			# nf-core/methylseq, run the nextflow methylseq pipeline for standard short-read data processing.         		
 │   ├── python/
-│   │   ├── parse_toulligqc.py	       		# Summarize over ToulligQC .data files into one QC table        
+│   │   ├── 05_parse_toulligqc.py	       	# Summarize over ToulligQC .data files into one QC table        
 │   └── R/
-│       ├── 01_epic_preprocessing.R    		
-│       ├── 02_qc_visualization.R      		
-│       ├── 03_correlation_analysis.R  		
-│       ├── 04_density_plots.R         		
-│       ├── 05_pca.R                   		
-│       ├── 06_differential_methylation.R  	
-│       ├── 07_annotation.R            		
-│       └── utils/
-│           ├── plot_theme.R
-│           └── helpers.R
+│       ├── 06_visualize_toulligqc_summary.R 	# Visualization for ONT QC reports.   		
 │
 ├── envs/
 │   ├── environment.yml				# Basic environment, Tools and Python utility
