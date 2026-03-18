@@ -15,29 +15,57 @@
 #   Handled externally by nf-core/methylseq v1.0.0 (Nextflow pipeline)
 #   https://nf-co.re/methylseq/1.0.0
 #   Run separately: nextflow run nf-core/methylseq -r 1.0.0 -profile conda
+#
+# These are handled automatically when running via Snakemake:
+#   snakemake --use-conda --cores 16
 # =============================================================================
 
 name: methylbench
 
 channels:
-  - conda-forge      
-  - bioconda         
-  - nanoporetech     
+  - conda-forge      # highest priority: most up-to-date packages
+  - bioconda         # bioinformatics tools
+  - nanoporetech     # modkit (ONT official channel)
   - defaults
 
 dependencies:
+
+  # ---------------------------------------------------------------------------
+  # Core Language Runtimes
+  # ---------------------------------------------------------------------------
   - python=3.11
   - r-base=4.3
+
+  # ---------------------------------------------------------------------------
+  # Workflow Management
+  # ---------------------------------------------------------------------------
   - nextflow>=24.04
+  - snakemake>=7.32
+  - snakemake-executor-plugin-slurm  # HPC cluster support
+  - singularity>=3.8               # container runtime for nf-core/methylseq
+
+  # ---------------------------------------------------------------------------
+  # Alignment & BAM Processing
+  # NOTE: WGEC, RRBS, TWIST alignment and methylation calling is handled
+  # externally by nf-core/methylseq v1.0.0 – not managed in this environment
+  # https://nf-co.re/methylseq/1.0.0
+  # ---------------------------------------------------------------------------
   - samtools>=1.19
-  - bismark>=0.24          
-  - bowtie2>=2.5           
-  - minimap2>=2.26         
-  - pbmm2>=1.13            
-  - htslib>=1.19           
-  - pysam>=0.22            
-  - toulligqc>=2.8         
-  - pod5>=0.3              
+  - minimap2>=2.26         # ONT long-read alignment
+  - pbmm2>=1.13            # PacBio long-read alignment
+  - htslib>=1.19           # tabix, bgzip
+  - pysam>=0.22            # Python BAM interface
+
+  # ---------------------------------------------------------------------------
+  # ONT-specific Tools
+  # (modkit is in envs/ont.yaml due to dependency conflicts)
+  # ---------------------------------------------------------------------------
+  - toulligqc>=2.8         # ONT post-sequencing QC
+  - pod5>=0.3              # ONT pod5 file handling
+
+  # ---------------------------------------------------------------------------
+  # Python Utilities
+  # ---------------------------------------------------------------------------
   - numpy>=1.26
   - pandas>=2.1
   - scipy>=1.11
@@ -47,50 +75,81 @@ dependencies:
   - tqdm>=4.66
   - h5py>=3.10
   - pyyaml>=6.0
-  - click>=8.1             
+  - click>=8.1             # CLI interface for custom scripts
   - biopython>=1.83
-  - r-tidyverse>=2.0       
+
+  # ---------------------------------------------------------------------------
+  # R - Core & Tidyverse
+  # ---------------------------------------------------------------------------
+  - r-tidyverse>=2.0       # includes dplyr, tidyr, readr, purrr, stringr
   - r-dplyr>=1.1
   - r-ggplot2>=3.4
-  - r-data.table>=1.15     
-  - r-ggridges>=0.5        
-  - r-ggrepel>=0.9         
-  - r-patchwork>=1.2      
-  - r-pheatmap>=1.0        
+  - r-data.table>=1.15     # high-performance data manipulation (used in paper)
+
+  # ---------------------------------------------------------------------------
+  # R - Visualization
+  # ---------------------------------------------------------------------------
+  - r-ggridges>=0.5        # ridge/density plots (Figure 5, cited in paper)
+  - r-ggrepel>=0.9         # non-overlapping labels
+  - r-patchwork>=1.2       # panel composition
+  - r-pheatmap>=1.0        # heatmaps (Figures S12, S13)
   - r-rcolorbrewer>=1.1
   - r-viridis>=0.6
   - r-scales>=1.3
   - r-cowplot>=1.1
-  - bioconductor-limma>=3.58      
-  - r-complexupset>=1.3           
-  - r-upsetr>=1.4                 
-  - bioconductor-rnbeads>=2.12          
-  - bioconductor-rnbeads.hg19           
-  - bioconductor-rnbeads.hg38           
-  - bioconductor-annotatr>=1.26         
-  - bioconductor-genomicranges>=1.54    s
+
+  # ---------------------------------------------------------------------------
+  # R - Statistical Analysis
+  # ---------------------------------------------------------------------------
+  - bioconductor-limma>=3.58      # differential methylation, limma (cited in paper)
+  - r-complexupset>=1.3           # UpSet plots (Figure 7A, cited in paper)
+  - r-upsetr>=1.4                 # UpSet plots alternative (cited in paper)
+
+  # ---------------------------------------------------------------------------
+  # R - Bioconductor / Epigenomics
+  # ---------------------------------------------------------------------------
+  - bioconductor-rnbeads>=2.12          # EPIC array preprocessing (cited in paper)
+  - bioconductor-rnbeads.hg19           # RnBeads annotation hg19
+  - bioconductor-rnbeads.hg38           # RnBeads annotation hg38 (used: GRCh38)
+  - bioconductor-annotatr>=1.26         # DMC genomic annotation (cited in paper)
+  - bioconductor-genomicranges>=1.54    # genomic interval operations
   - bioconductor-iranges>=2.36
   - bioconductor-genomicfeatures>=1.54
-  - bioconductor-txdb.hsapiens.ucsc.hg38.knowngene  
-  - bioconductor-bsgenome.hsapiens.ucsc.hg38         
-  - bioconductor-org.hs.eg.db>=3.18     
-  - bioconductor-biomart>=2.58          
-  - bioconductor-complexheatmap>=2.18   
-  - bioconductor-watermelon>=2.6   
-  - bioconductor-minfi>=1.48       
-  - bioconductor-ewastools          
+  - bioconductor-txdb.hsapiens.ucsc.hg38.knowngene  # GRCh38 annotation
+  - bioconductor-bsgenome.hsapiens.ucsc.hg38         # GRCh38 reference sequences
+  - bioconductor-org.hs.eg.db>=3.18     # human gene annotation
+  - bioconductor-biomart>=2.58          # Ensembl queries
+  - bioconductor-complexheatmap>=2.18   # advanced heatmaps
+
+  # ---------------------------------------------------------------------------
+  # R - Normalization & QC
+  # ---------------------------------------------------------------------------
+  - bioconductor-watermelon>=2.6   # dasen normalization (cited in paper)
+  - bioconductor-minfi>=1.48       # EPIC array QC and normalization
+  - bioconductor-ewastools          # EWAS QC utilities
+
+  # ---------------------------------------------------------------------------
+  # R - Utilities
+  # ---------------------------------------------------------------------------
   - r-knitr>=1.45
   - r-rmarkdown>=2.25
-  - r-optparse>=1.7        
-  - r-here>=1.0            
+  - r-optparse>=1.7        # command-line argument parsing for Rscripts
+  - r-here>=1.0            # project-relative paths
   - r-remotes>=2.4
-  - fastqc>=0.12           
-  - multiqc>=1.19          
-  - trim-galore>=0.6       
-  - bedtools>=2.31         
+
+  # ---------------------------------------------------------------------------
+  # Misc Bioinformatics
+  # ---------------------------------------------------------------------------
+  - fastqc>=0.12           # general sequencing QC
+  - multiqc>=1.19          # aggregate QC reports
+  - trim-galore>=0.6       # adapter trimming (RRBS-aware)
+  - bedtools>=2.31         # BED file operations
   - tabix>=1.11
 
+  # ---------------------------------------------------------------------------
+  # pip fallback (packages not available via conda)
+  # ---------------------------------------------------------------------------
   - pip
   - pip:
-    - touligqc              
-    - crypt4gh>=1.6         
+    - touligqc              # fallback if bioconda version unavailable
+    - crypt4gh>=1.6         # EGA file encryption (required for data submission)

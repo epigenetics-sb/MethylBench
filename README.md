@@ -36,9 +36,10 @@ MethylBench/
 │
 ├── scripts/
 │   ├── bash/
-│   │   ├── process_bismark.sh         		# WGEC, RRBS, TWIST
-│   │   ├── process_ont.sh             		# modkit
-│   │   └── process_pacbio.sh          		# pb-cpg-tools
+│   │   ├── 01_modkit_pileup.sh			# modkit, extract methylation information from aligned .bam files.
+│   │   ├── 02_toulligqc.sh			# ToulligQC, perform QC analysis on alignend .bam files and create intermediary files.         
+│   │   ├── 03_pbcpgtools.sh			# pb-cpg-tools, extract methylation information from PacBio alignment files.         		
+│   │   └── 04_methylseq.sh			# nf-core/methylseq, run the nextflow methylseq pipeline for standard short-read data processing.         		
 │   ├── python/
 │   │   ├── parse_toulligqc.py	       		# Summarize over ToulligQC .data files into one QC table        
 │   └── R/
@@ -72,21 +73,18 @@ MethylBench/
 - R >= 4.3
 - Python >= 3.10
 
-All tool-specific dependencies are managed via per-rule Conda environments defined in `envs/`.
-
-Key R packages: `RnBeads`, `limma`, `ggplot2`, `ggridges`, `data.table`, `annotatr`, `UpSetR`
-Key tools: `Bismark`, `modkit`, `pb-cpg-tools`
-
+All tool-specific dependencies are managed via Conda environments defined in `envs/`.
 ---
 
 ## Quick Start
 
 ```bash
 # Clone repository
-git clone https://github.com/[org]/MethylBench
+git clone https://github.com/epigenetics-sb/MethylBench
 cd MethylBench
 
 # Create and activate base environment
+cd envs/
 conda env create -f environment.yml
 conda activate methylbench
 ```
@@ -126,25 +124,6 @@ Rscript scripts/R/07_annotation.R
 ```
 
 All scripts expect preprocessed methylation matrices as input. See `docs/reproduction_guide.md` for detailed instructions.
-
----
-
-## Configuration
-
-All key analysis parameters are centralized in `workflow/config/config.yaml`:
-
-```yaml
-# Coverage thresholds
-coverage_thresholds: [5, 10, 15, 20, 30, 40]
-primary_threshold: 10
-
-# Differential methylation
-fdr_cutoff: 0.05
-delta_beta_cutoff: 0.5
-
-# Reference genome
-reference: GRCh38
-```
 
 ---
 
