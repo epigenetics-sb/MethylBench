@@ -1,0 +1,96 @@
+# =============================================================================
+# MethylBench - Main Conda Environment
+# =============================================================================
+# Usage:
+#   conda env create -f environment.yml
+#   conda activate methylbench
+#
+# NOTE: Some tools have known dependency conflicts and should be installed
+# in separate environments (see envs/ directory):
+#   - modkit         → envs/ont.yaml
+#   - pb-cpg-tools   → envs/pacbio.yaml
+#   - toulligqc      → envs/ont.yaml
+#
+# PREPROCESSING (WGEC, RRBS, TWIST alignment + methylation calling):
+#   Handled externally by nf-core/methylseq v1.0.0 (Nextflow pipeline)
+#   https://nf-co.re/methylseq/1.0.0
+#   Run separately: nextflow run nf-core/methylseq -r 1.0.0 -profile conda
+# =============================================================================
+
+name: methylbench
+
+channels:
+  - conda-forge      
+  - bioconda         
+  - nanoporetech     
+  - defaults
+
+dependencies:
+  - python=3.11
+  - r-base=4.3
+  - nextflow>=24.04
+  - samtools>=1.19
+  - bismark>=0.24          
+  - bowtie2>=2.5           
+  - minimap2>=2.26         
+  - pbmm2>=1.13            
+  - htslib>=1.19           
+  - pysam>=0.22            
+  - toulligqc>=2.8         
+  - pod5>=0.3              
+  - numpy>=1.26
+  - pandas>=2.1
+  - scipy>=1.11
+  - matplotlib>=3.8
+  - plotly>=5.18
+  - scikit-learn>=1.3
+  - tqdm>=4.66
+  - h5py>=3.10
+  - pyyaml>=6.0
+  - click>=8.1             
+  - biopython>=1.83
+  - r-tidyverse>=2.0       
+  - r-dplyr>=1.1
+  - r-ggplot2>=3.4
+  - r-data.table>=1.15     
+  - r-ggridges>=0.5        
+  - r-ggrepel>=0.9         
+  - r-patchwork>=1.2      
+  - r-pheatmap>=1.0        
+  - r-rcolorbrewer>=1.1
+  - r-viridis>=0.6
+  - r-scales>=1.3
+  - r-cowplot>=1.1
+  - bioconductor-limma>=3.58      
+  - r-complexupset>=1.3           
+  - r-upsetr>=1.4                 
+  - bioconductor-rnbeads>=2.12          
+  - bioconductor-rnbeads.hg19           
+  - bioconductor-rnbeads.hg38           
+  - bioconductor-annotatr>=1.26         
+  - bioconductor-genomicranges>=1.54    s
+  - bioconductor-iranges>=2.36
+  - bioconductor-genomicfeatures>=1.54
+  - bioconductor-txdb.hsapiens.ucsc.hg38.knowngene  
+  - bioconductor-bsgenome.hsapiens.ucsc.hg38         
+  - bioconductor-org.hs.eg.db>=3.18     
+  - bioconductor-biomart>=2.58          
+  - bioconductor-complexheatmap>=2.18   
+  - bioconductor-watermelon>=2.6   
+  - bioconductor-minfi>=1.48       
+  - bioconductor-ewastools          
+  - r-knitr>=1.45
+  - r-rmarkdown>=2.25
+  - r-optparse>=1.7        
+  - r-here>=1.0            
+  - r-remotes>=2.4
+  - fastqc>=0.12           
+  - multiqc>=1.19          
+  - trim-galore>=0.6       
+  - bedtools>=2.31         
+  - tabix>=1.11
+
+  - pip
+  - pip:
+    - touligqc              
+    - crypt4gh>=1.6         

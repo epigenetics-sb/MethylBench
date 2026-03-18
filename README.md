@@ -33,7 +33,6 @@ MethylBench/
 │
 ├── README.md
 ├── LICENSE
-├── environment.yml                    		# Conda environment (R + Python)
 │
 ├── scripts/
 │   ├── bash/
@@ -43,19 +42,22 @@ MethylBench/
 │   ├── python/
 │   │   ├── parse_toulligqc.py	       		# Summarize over ToulligQC .data files into one QC table        
 │   └── R/
-│       ├── 01_epic_preprocessing.R    		# RnBeads, dasen normalization
-│       ├── 02_qc_visualization.R      		# Figure 3
-│       ├── 03_correlation_analysis.R  		# Figure 4
-│       ├── 04_density_plots.R         		# Figure 5
-│       ├── 05_pca.R                   		# Figure 6
-│       ├── 06_differential_methylation.R  	# Figure 7
-│       ├── 07_annotation.R            		# Figure S14
+│       ├── 01_epic_preprocessing.R    		
+│       ├── 02_qc_visualization.R      		
+│       ├── 03_correlation_analysis.R  		
+│       ├── 04_density_plots.R         		
+│       ├── 05_pca.R                   		
+│       ├── 06_differential_methylation.R  	
+│       ├── 07_annotation.R            		
 │       └── utils/
 │           ├── plot_theme.R
 │           └── helpers.R
 │
 ├── envs/
-│   ├── methylbench.yml
+│   ├── environment.yml				# Basic environment, Tools and Python utility
+│   ├── ont.yml					# ONT related tools, modkit, toulligQC
+│   ├── pacbio.yml				# PacBio specific tool, pb-cpg-tools
+│   └── r_analysis.yml				# R-related packages for R-analysis
 │
 └── docs/
     └── reproduction_guide.md

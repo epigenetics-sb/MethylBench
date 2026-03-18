@@ -1,0 +1,21 @@
+# =============================================================================
+# MethylBench - PacBio Environment
+# =============================================================================
+# NOTE: pb-cpg-tools is Linux x86_64 only – not available for macOS
+# Install standalone: conda env create -f envs/pacbio.yaml -n methylbench-pacbio
+
+name: methylbench-pacbio
+
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  - pb-cpg-tools>=3.0      
+  - pbmm2>=1.13           
+  - samtools>=1.19
+  - htslib>=1.19
+  - numpy>=1.26
+  - pandas>=2.1
