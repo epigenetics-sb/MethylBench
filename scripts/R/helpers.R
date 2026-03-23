@@ -1,14 +1,32 @@
 #!/usr/bin/env Rscript
-# MethylBench - Utility & Helper Functions
+# =============================================================================
+# MethylBench – Utility & Helper Functions
+# =============================================================================
+# Description:
+#   Shared helper functions used across all MethylBench analysis scripts.
+#   Covers:
+#     - File readers for all methylation platforms (ONT/modkit, PacBio,
+#       Bismark, EPIC array, samplesheets)
+#     - Vectorized long-format data construction for density/ridge plots
+#       (replaces repetitive rbind-based create_max_* functions)
+#     - Cross-platform Pearson correlation computation
+#     - Shared color palettes
+#
+# NOTE on the original create_max_* functions:
+#   The original implementations contained a systematic bug where the TWIST
+#   coverage filter always used sample index 1 (e.g. TWIST_cov_Blood1) instead
+#   of the correct per-sample index (TWIST_cov_Blood2, Blood3, ...) for all
+#   non-first samples. This is fixed here by constructing the filter mask
+#   programmatically per sample.
+#
+# Author:  MethylBench – Laufer et al.
+# =============================================================================
 
 suppressPackageStartupMessages({
   library(data.table)
   library(dplyr)
 })
 
-### File Readers
-
-# Read ONT modkit BedMethyl file
 readBedMethyl <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
@@ -33,7 +51,6 @@ readBedMethyl <- function(path) {
   return(dataset)
 }
 
-# Read PacBio pb-cpg-tools methylation BED file
 readPacBio <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
@@ -56,7 +73,7 @@ readPacBio <- function(path) {
   return(dataset)
 }
 
-# Read Bismark coverage file (nf-core/methylseq output)
+#' @return data.table with named columns.
 readBismarkMeth <- function(path, correct_coords = FALSE) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
@@ -72,7 +89,6 @@ readBismarkMeth <- function(path, correct_coords = FALSE) {
   return(dataset)
 }
 
-# Read EPIC methylation matrix (beta values)
 readEPIC <- function(path, sample.name) {
   stopifnot(is.character(path), length(path) == 1)
   stopifnot(is.character(sample.name), length(sample.name) == 1)
@@ -90,7 +106,6 @@ readEPIC <- function(path, sample.name) {
   return(dataset[, c("ID", sample.name), with = FALSE])
 }
 
-# Read samplesheet 
 readSampleSheet <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
@@ -99,9 +114,6 @@ readSampleSheet <- function(path) {
   return(ss)
 }
 
-### Long-Format Data Construction
-
-# Build long-format methylation data.frame for density/ridge plots
 buildMethLong <- function(data,
                           samples,
                           methods,
@@ -120,7 +132,6 @@ buildMethLong <- function(data,
 
   for (cov_threshold in coverages) {
     for (smp in samples) {
-
       if (cov_threshold == 0) {
         mask <- rep(TRUE, nrow(data))
       } else {
@@ -145,7 +156,7 @@ buildMethLong <- function(data,
 
         if (!meth_col %in% colnames(data)) {
           warning(sprintf(
-            "buildMethLong: methylation column '%s' not found.",
+            "buildMethLong: methylation column '%s' not found – skipping.",
             meth_col
           ))
           next
@@ -172,9 +183,6 @@ buildMethLong <- function(data,
   return(result)
 }
 
-### Cross-Platform Pearson Correlation
-
-# Compute pairwise Pearson correlations across methylation methods
 computePairwiseCorr <- function(data,
                                 methods,
                                 sample,
@@ -227,10 +235,6 @@ computePairwiseCorr <- function(data,
   return(result)
 }
 
-### Color Palettes
-
-# MethylBench color palette (25 distinct colors)
-# For general use across plots.
 C25 <- c(
   "dodgerblue2", "#E31A1C", "green4", "#6A3D9A", "#FF7F00",
   "lightgrey",   "gold1",   "skyblue2", "#FB9A99", "palegreen2",
@@ -239,14 +243,12 @@ C25 <- c(
   "green1",      "yellow4", "yellow3", "darkorange4", "brown"
 )
 
-# MethylBench color palette (12 colors, for sample-level plots)
 C12 <- c(
   "dodgerblue2", "#E31A1C", "green4",      "#6A3D9A",
   "#FF7F00",     "grey",    "gold1",        "khaki2",
   "brown",       "darkturquoise", "palegreen2", "orchid1"
 )
 
-# Method-specific colors for consistent styling across figures
 METHOD_COLORS <- c(
   "ONT"    = "#D69F00",
   "PacBio" = "#E55E00",
@@ -257,14 +259,10 @@ METHOD_COLORS <- c(
   "WGEC"   = "purple"
 )
 
-# Return method color palette as named vector
 get_colors <- function() {
   return(METHOD_COLORS)
 }
 
-### Package Loading Helpers
-
-# Load core plotting packages
 load_plotting_environment <- function() {
   packages_to_load <- c(
     "ggplot2", "reshape2", "data.table",
@@ -273,7 +271,6 @@ load_plotting_environment <- function() {
   invisible(lapply(packages_to_load, require, character.only = TRUE))
 }
 
-# Load core analysis and visualization packages
 load_environment <- function() {
   packages_to_load <- c(
     "ggplot2", "reshape2", "data.table",
@@ -282,13 +279,163 @@ load_environment <- function() {
   invisible(lapply(packages_to_load, require, character.only = TRUE))
 }
 
-# Load differential methylation analysis packages
 load_environment_diff_meth <- function() {
   packages_to_load <- c(
-    "ggplot2","reshape2","data.table",
-    "tidyr","annotatr","dplyr",
-    "ggridges","limma",
-    "GenomicRanges","ComplexHeatmap"
+    "ggplot2", "reshape2",      "data.table",
+    "tidyr",   "annotatr",      "dplyr",
+    "ggridges", "limma",        "DMRcaller",
+    "GenomicRanges",            "ComplexHeatmap"
   )
   invisible(lapply(packages_to_load, require, character.only = TRUE))
+}
+
+extractCovDf <- function(data, threshold, cov_cols) {
+  stopifnot(is.data.table(data))
+  stopifnot(is.numeric(threshold), length(threshold) == 1)
+
+  if (is.numeric(cov_cols)) {
+    cov_cols <- colnames(data)[cov_cols]
+  }
+
+  missing <- setdiff(cov_cols, colnames(data))
+  if (length(missing) > 0) {
+    stop(paste("extractCovDf: columns not found:", paste(missing, collapse = ", ")))
+  }
+
+  mask <- Reduce(`&`, lapply(cov_cols, function(col) data[[col]] >= threshold))
+  return(data[mask])
+}
+
+buildMergedMatrix <- function(samplesheet,
+                               sampleset,
+                               datadir,
+                               include_epic   = FALSE,
+                               epic_path      = NULL,
+                               ont_suffix     = "_modkit_pileup.bed",
+                               bismark_suffix = ".bismark.cov.gz",
+                               pacbio_suffix  = ".GRCh38.pbmm2.combined.bed") {
+
+  stopifnot(is.data.table(samplesheet))
+  stopifnot(sampleset %in% c("Blood", "Fibroblast", "GIAB"))
+  if (include_epic && is.null(epic_path)) {
+    stop("buildMergedMatrix: epic_path required when include_epic = TRUE")
+  }
+
+  samples <- samplesheet[Sampleset == sampleset, Sample]
+  is_giab <- sampleset == "GIAB"
+  methods <- if (is_giab) c("ONT","RRBS","WGEC","TWIST","PacBio") else
+                           c("ONT","RRBS","WGEC","TWIST")
+
+  cat(sprintf("\n[buildMergedMatrix] %s | Samples: %s\n",
+    sampleset, paste(samples, collapse=", ")))
+
+  all_sample_dts <- lapply(samples, function(smp) {
+
+    method_dts <- lapply(methods, function(m) {
+
+      if (m == "ONT") {
+        path <- file.path(datadir, "ONT", paste0(smp, ont_suffix))
+        if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
+        dt <- readBedMethyl(path)
+        dt <- dt[modbase == "m"]
+        dt[, start := start + 1L]
+        dt <- dt[, .(coord = paste0(chr,":",start),
+                     cov   = Nvalid_cov,
+                     meth  = fraction_mod)]
+
+      } else if (m %in% c("RRBS","WGEC","TWIST")) {
+        path <- file.path(datadir, m, paste0(smp, bismark_suffix))
+        if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
+        dt <- readBismarkMeth(path, correct_coords = TRUE)
+        dt <- dt[, .(coord = paste0(chr,":",start),
+                     cov   = coverage,
+                     meth  = percentage / 100)]
+
+      } else if (m == "PacBio") {
+        path <- file.path(datadir, "PacBio", paste0(smp, pacbio_suffix))
+        if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
+        dt <- readPacBio(path)
+        dt[, start := start + 1L]
+        dt <- dt[, .(coord = paste0(chr,":",start),
+                     cov   = coverage,
+                     meth  = percentage / 100)]
+      }
+
+      dt <- dt[!duplicated(coord)]
+      prefix <- ifelse(m == "WGEC", "WGBS", m)
+      setnames(dt,
+        c("cov", "meth"),
+        c(paste0(prefix, "_cov_", smp), paste0(prefix, "_", smp))
+      )
+      return(dt)
+    })
+
+    method_dts <- Filter(Negate(is.null), method_dts)
+    if (length(method_dts) == 0) return(NULL)
+    Reduce(function(a,b) merge(a, b, by="coord", all=FALSE), method_dts)
+  })
+
+  all_sample_dts <- Filter(Negate(is.null), all_sample_dts)
+
+  cat("  Merging across samples...\n")
+  merged <- Reduce(function(a,b) merge(a, b, by="coord", all=TRUE), all_sample_dts)
+
+  if (include_epic) {
+    cat("  Joining EPIC data...\n")
+    epic <- fread(epic_path, header=TRUE, sep="\t")
+    if (!"coord" %in% colnames(epic)) {
+      warning("EPIC matrix has no coord column – add chr:start column before joining.")
+    } else {
+      merged <- merge(merged, epic, by="coord", all.x=TRUE)
+    }
+  }
+
+  out_dir  <- file.path(datadir, "matrices")
+  dir.create(out_dir, recursive=TRUE, showWarnings=FALSE)
+  suffix   <- ifelse(include_epic, "_with_EPIC.csv", "_without_EPIC.csv")
+  out_file <- file.path(out_dir, paste0(sampleset, suffix))
+  fwrite(merged, out_file, sep=",", quote=FALSE, na="NA")
+  cat(sprintf("  Saved: %s (%d CpGs x %d columns)\n",
+    out_file, nrow(merged), ncol(merged)))
+
+  return(invisible(merged))
+}
+
+computeCorrAcrossCoverages <- function(data,
+                                        samples,
+                                        methods,
+                                        coverages = c(0, 5, 10, 15)) {
+
+  stopifnot(is.data.table(data))
+
+  result <- data.frame()
+
+  for (smp in samples) {
+    for (cov in coverages) {
+
+      if (cov == 0) {
+        filtered <- data
+      } else {
+        cov_cols <- paste0(methods, "_cov_", smp)
+        cov_cols <- cov_cols[cov_cols %in% colnames(data)]
+        filtered <- extractCovDf(data, threshold = cov, cov_cols = cov_cols)
+      }
+
+      result <- computePairwiseCorr(
+        data     = filtered,
+        methods  = methods,
+        sample   = smp,
+        coverage = cov,
+        existing = result
+      )
+    }
+  }
+
+  result$sample <- sub("^_", "", result$Sample)
+  cov_labels     <- ifelse(coverages == 0, "None", paste0(coverages, "x"))
+  result$Coverage2 <- ifelse(result$Coverage == 0, "None",
+                              paste0(result$Coverage, "x"))
+  result$Coverage2 <- factor(result$Coverage2, levels = cov_labels)
+
+  return(result)
 }
