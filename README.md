@@ -52,6 +52,7 @@ MethylBench/
 │       ├── 11_pca.R 				# Principal Component Analysis, Figure 6. 
 │       ├── 12_differential_methylation.R 	# Differential Methylation Analysis, Figure 7. 
 │       ├── 13_annotation.R 			# Visualization for ONT QC reports.   		
+│       ├── limma_diff_meth.R 	# Provides functionality to run also the limma approach (Needed for some figures un 12_differential_methylation.R).
 │       └── helpers.R				# Helper functionality.
 │
 ├── envs/
@@ -85,10 +86,50 @@ All tool-specific dependencies are managed via Conda environments defined in `en
 git clone https://github.com/epigenetics-sb/MethylBench
 cd MethylBench
 
-# Create and activate base environment
+# Create environments
 cd envs/
 conda env create -f environment.yml
+conda env create -f ont.yml
+conda env create -f pacbio.yml
+conda env create -f r-analysis.yml
+
+cd ..
+```
+```bash
+################################################################################################
+# NOTE: Please check the scripts for proper argument structure and folder setup for all scripts!
+################################################################################################
+
+# Run preprocessing steps
+# All bash scripts can be properly run, as the help descriptions tell you.
+conda activate ont
+
+bash scripts/bash/01_modkit_pileup.sh --help
+bash scripts/bash/02_toulligqc.sh --help
+
+conda deactivate 
+conda activate pacbio
+
+bash scripts/bash/03_pbcpgtools.sh --help
+
+conda deactivate
 conda activate methylbench
+
+bash scripts/bash/04_methylseq.sh --help
+
+# Run tool QC visualization
+python3 scripts/python/05_parse_toulligqc.py
+
+# Run actual analysis in R
+Rscript scripts/R/06_visualize_toulligqc_summary.R
+Rscript scripts/R/07_generate_cpg_stats.R
+Rscript scripts/R/08_qc_visualization.R
+Rscript scripts/R/09_correlation_analysis.R
+Rscript scripts/R/10_density_plots.R
+Rscript scripts/R/11_pca.R
+Rscript scripts/R/limma_diff_meth.R
+Rscript scripts/R/12_differential_methylation.R
+Rscript scripts/R/13_annotation.R
 ```
 
 ---
