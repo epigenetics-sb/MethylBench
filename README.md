@@ -2,11 +2,6 @@
 
 > Reproducible analysis code for a systematic benchmark of six DNA methylation profiling technologies across diverse sequencing platforms.
 
-**Associated publication:**
-Laufer L, Gasparoni G, Hentrich T, Sofan L, Admard J, Buena-Atienza E, Pogoda M, Ossowski S, Casadei N, Rieß O, Haack TB, Buchert R, Schulze-Hentrich J.
-*MethylBench: A comprehensive benchmark of DNA methylation profiling methods across diverse sequencing platforms.*
-[JOURNAL].
-
 ---
 
 ## Overview
@@ -55,14 +50,11 @@ MethylBench/
 │       ├── limma_diff_meth.R 	# Provides functionality to run also the limma approach (Needed for some figures un 12_differential_methylation.R).
 │       └── helpers.R				# Helper functionality.
 │
-├── envs/
-│   ├── environment.yml				# Basic environment, Tools and Python utility
-│   ├── ont.yml					# ONT related tools, modkit, toulligQC
-│   ├── pacbio.yml				# PacBio specific tool, pb-cpg-tools
-│   └── r_analysis.yml				# R-related packages for R-analysis
-│
-└── docs/
-    └── reproduction_guide.md
+└── envs/
+    ├── environment.yml				# Basic environment, Tools and Python utility
+    ├── ont.yml					# ONT related tools, modkit, toulligQC
+    ├── pacbio.yml				# PacBio specific tool, pb-cpg-tools
+    └── r_analysis.yml				# R-related packages for R-analysis
 ```
 
 ---
@@ -136,7 +128,7 @@ Rscript scripts/R/13_annotation.R
 
 ## Data Availability
 
-Raw sequencing data generated in this study are deposited at the **European Genome-phenome Archive (EGA)** under accession number `EGASXXXXXXX` (available upon publication).
+Processed methylation matrices are available from the corresponding author upon request.
 
 GIAB reference samples (HG001/NA12878, HG002/NA24385) including PacBio methylation data are publicly available via the [PacBio website](https://www.pacb.com/connect/datasets/).
 
@@ -199,19 +191,7 @@ Rscript scripts/R/12_differential_methylation.R
 Rscript scripts/R/13_annotation.R
 ```
 
-All scripts expect preprocessed (methylation) matrices as input. See `docs/reproduction_guide.md` for detailed instructions.
-
----
-
-## Citation
-
-If you use this code, please cite:
-
-```
-Laufer et al. (2025). MethylBench: A comprehensive benchmark of DNA methylation
-profiling methods across diverse sequencing platforms.
-[JOURNAL]. DOI: [to be added upon publication]
-```
+All scripts expect preprocessed (methylation) matrices as input.
 
 ---
 
