@@ -195,6 +195,7 @@ Rscript scripts/R/12_differential_methylation.R
 Rscript scripts/R/14_DMR_DSS_analysis.R
 
 # Figure 9 – Differential methylation analysis using DMRcate (regional analysis)
+Rscript scripts/R/15_DMR_DMRcate_analysis.R
 
 # Figure S14 – DMC annotation
 Rscript scripts/R/13_annotation.R
