@@ -46,8 +46,10 @@ MethylBench/
 │       ├── 10_density_plots.R 			# Methylation Density Analysis, Figure 5. 
 │       ├── 11_pca.R 				# Principal Component Analysis, Figure 6. 
 │       ├── 12_differential_methylation.R 	# Differential Methylation Analysis, Figure 7. 
-│       ├── 13_annotation.R 			# Visualization for ONT QC reports.   		
-│       ├── limma_diff_meth.R 	# Provides functionality to run also the limma approach (Needed for some figures un 12_differential_methylation.R).
+│       ├── 13_annotation.R 			# Visualization for ONT QC reports.   	
+│       ├── 14_DMR_DSS_analysis.R 		# Single CpG differential analysis using DSS, Figure 8.   	
+│       ├── 15_DMR_DMRcate_analysis.R 		# DMR analysis, Figure 9.   		
+│       ├── limma_diff_meth.R 	# Provides functionality to run also the limma approach (Needed for some figures in 12_differential_methylation.R).
 │       └── helpers.R				# Helper functionality.
 │
 └── envs/
@@ -122,6 +124,8 @@ Rscript scripts/R/11_pca.R
 Rscript scripts/R/limma_diff_meth.R
 Rscript scripts/R/12_differential_methylation.R
 Rscript scripts/R/13_annotation.R
+Rscript scripts/R/14_DMR_DSS_analysis.R
+Rscript scripts/R/15_DMR_DMRcate_analysis.R
 ```
 
 ---
@@ -184,8 +188,13 @@ Rscript scripts/R/10_density_plots.R
 # Figure 6 – Principal component analysis
 Rscript scripts/R/11_pca.R
 
-# Figure 7 – Differential methylation analysis
+# Figure 7 – Differential methylation analysis using limma & Wilcoxon Test
 Rscript scripts/R/12_differential_methylation.R
+
+# Figure 8 – Differential methylation analysis using DSS (single CpG analysis)
+Rscript scripts/R/14_DMR_DSS_analysis.R
+
+# Figure 9 – Differential methylation analysis using DMRcate (regional analysis)
 
 # Figure S14 – DMC annotation
 Rscript scripts/R/13_annotation.R
