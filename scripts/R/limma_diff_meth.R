@@ -179,7 +179,9 @@ cat("\n[2/4] Running limma per method...\n")
 
 cpg_ids <- if ("coord" %in% all_cols) {
   all$coord
-} else if (all(c("Chr","Pos") %in% all_cols)) {
+} else if (all(c("chr", "start") %in% all_cols)) {
+  paste0(all$chr, ":", all$start)
+} else if (all(c("Chr", "Pos") %in% all_cols)) {
   paste0(all$Chr, ":", all$Pos)
 } else {
   paste0("CpG_", seq_len(nrow(all)))

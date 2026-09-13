@@ -69,8 +69,8 @@ dir.create(opt$outdir, recursive = TRUE, showWarnings = FALSE)
 
 METHODS_NO_PACBIO <- c("ONT" = "ONT", "WGEC" = "WGEC",
                         "RRBS" = "RRBS", "TWIST" = "TWIST")
-METHODS_PACBIO    <- c("ONT" = "ONT", "WGEC" = "WGEC", "RRBS" = "RRBS",
-                        "TWIST" = "TWIST", "PacBio" = "PacBio")
+METHODS_PACBIO    <- c("ONT" = "ONT", "PacBio" = "PacBio", "WGEC" = "WGEC", "RRBS" = "RRBS",
+                        "TWIST" = "TWIST")
 METHODS_HIGH_COV  <- c("ONT" = "ONT", "TWIST" = "TWIST", "PacBio" = "PacBio")
 
 METHOD_ORDER      <- c("ONT", "PacBio", "RRBS", "TWIST", "WGEC")
@@ -234,9 +234,9 @@ ggsave(p_giab,
 # ---- 5.4 High-coverage representative samples: Blood3, Fibro4, GIAB2 --------
 
 tp_merged <- rbind(
-  buildMethLong(blood, "Blood3", METHODS_NO_PACBIO, c(0, 10, 20, 30, 40)),
-  buildMethLong(fibro, "Fibro4", METHODS_NO_PACBIO, c(0, 10, 20, 30, 40)),
-  buildMethLong(giab,  "GIAB2",  METHODS_PACBIO,    c(0, 10, 20, 30, 40))
+  buildMethLong(blood, "Blood3", METHODS_NO_PACBIO, c(0, 10)),
+  buildMethLong(fibro, "Fibro4", METHODS_NO_PACBIO, c(0, 10)),
+  buildMethLong(giab,  "GIAB2",  METHODS_PACBIO,    c(0, 10))
 )
 tp_merged <- prep_long(tp_merged)
 tp_merged[, SampleFacet := fcase(
@@ -328,7 +328,7 @@ if (!is.null(opt$epic_path) && file.exists(opt$epic_path)) {
   # Select only the columns needed: EPIC betas + ONT/WGEC/TWIST/RRBS/PacBio
   # for the three representative samples, then apply joint 10x filter
   keep_meth <- c(
-    "Sample3_blood_EPIC", "Sample4_FBK_EPIC", "NA24385_HG002",
+    "EPIC_Blood3", "EPIC_Fibro4", "EPIC_GIAB2",
     "ONT_Blood3",  "WGEC_Blood3",  "TWIST_Blood3",  "RRBS_Blood3",
     "ONT_Fibro4",  "WGEC_Fibro4",  "TWIST_Fibro4",  "RRBS_Fibro4",
     "ONT_GIAB2",   "WGEC_GIAB2",   "TWIST_GIAB2",   "RRBS_GIAB2",
@@ -348,14 +348,14 @@ if (!is.null(opt$epic_path) && file.exists(opt$epic_path)) {
   meth_10x <- meth_10x[, ..present_meth]
 
   # Rename EPIC columns to consistent format
-  setnames(meth_10x,
-    old = intersect(c("Sample3_blood_EPIC","Sample4_FBK_EPIC","NA24385_HG002"),
-                    colnames(meth_10x)),
-    new = intersect(c("EPIC_Blood3", "EPIC_Fibro4", "EPIC_GIAB2"),
-                    c("EPIC_Blood3", "EPIC_Fibro4", "EPIC_GIAB2")
-                    [c("Sample3_blood_EPIC","Sample4_FBK_EPIC","NA24385_HG002")
-                      %in% colnames(meth_10x)])
-  )
+  #setnames(meth_10x,
+  #  old = intersect(c("Sample3_blood_EPIC","Sample4_FBK_EPIC","NA24385_HG002"),
+  #                  colnames(meth_10x)),
+  #  new = intersect(c("EPIC_Blood3", "EPIC_Fibro4", "EPIC_GIAB2"),
+  #                  c("EPIC_Blood3", "EPIC_Fibro4", "EPIC_GIAB2")
+  #                  [c("Sample3_blood_EPIC","Sample4_FBK_EPIC","NA24385_HG002")
+  #                    %in% colnames(meth_10x)])
+  #)
 
   tp_epic <- melt(meth_10x, measure.vars = colnames(meth_10x),
                   variable.name = "variable", value.name = "value")

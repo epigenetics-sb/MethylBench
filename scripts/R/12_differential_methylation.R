@@ -280,16 +280,16 @@ make_heatmap <- function(n_cpgs, filename) {
 
   ht <- Heatmap(
     as.matrix(mat_top),
-    name              = "Δβ",
+    name              = "Delta Beta",
     col               = col_fun,
     cluster_rows      = TRUE,
     cluster_columns   = TRUE,
     show_row_names    = FALSE,
-    column_title      = "Δβ (Blood–Fibro) across Methods",
+    column_title      = "Delta Beta (Blood - Fibro) across Methods",
     row_title         = sprintf("Top %s variable CpGs",
                                   formatC(n_cpgs, big.mark = ",")),
     heatmap_legend_param = list(
-      title           = "Δβ (Blood–Fibro)",
+      title           = "Delta Beta (Blood - Fibro)",
       title_gp        = gpar(fontsize = 17, fontface = "bold"),
       labels_gp       = gpar(fontsize = 16),
       legend_width    = unit(7, "cm"),
@@ -386,6 +386,7 @@ if (length(missing_limma) > 0) {
     name     = "Method specific overlap",
     min_size = 100
   ) +
+    guides(color = guide_legend(title = NULL)) +
     theme(
       text         = element_text(size = 25),
       axis.text    = element_text(size = 18),
@@ -450,6 +451,7 @@ print(ComplexUpset::upset(
   name     = "Method specific overlap",
   min_size = 100
 ) +
+  guides(color = guide_legend(title = NULL)) +
   theme(
     text         = element_text(size = 25),
     axis.text    = element_text(size = 18),
@@ -535,7 +537,7 @@ ggsave(p_scatter,
 cat("[5/6] Computing variance and coverage...\n")
 
 value_cols_all <- colnames(all)[
-  !colnames(all) %in% c("Chr", "Pos", "coord") &
+  !colnames(all) %in% c("chr", "start", "coord") &
   !grepl("_cov_", colnames(all))
 ]
 
@@ -587,8 +589,8 @@ ggsave(p_var,
 
 # ---- 5.7 Coverage per method (Blood and Fibro) ------------------------------
 
-merged_cov <- merge(all, blood, by.x = c("Chr", "Pos"), by.y = c("chr", "start"))
-merged_cov <- merge(merged_cov, fibro, by.x = c("Chr", "Pos"), by.y = c("chr", "start"))
+merged_cov <- merge(all, blood, by = c("chr", "start"))
+merged_cov <- merge(merged_cov, fibro, by = c("chr", "start"))
 
 cov_col_names <- grep("_cov_", colnames(merged_cov), value = TRUE)
 covs          <- as.data.table(merged_cov)[, ..cov_col_names]

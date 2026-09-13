@@ -45,9 +45,10 @@
 #   --sig_bed_dir     Directory containing per-method significant DMC BED
 #                      files (as produced by 13_annotation.R / 14 or 15).
 #   --background_tsv  TSV with the tested CpG background, one row per CpG,
-#                      columns: Chr, Pos (e.g. Tier1_consensus_CpGs.tsv /
-#                      Tier2_consensus_CpGs.tsv from 14_DMR_DSS_analysis.R,
-#                      or the DMR-testing background from 15_DMR_DMRcate).
+#                      with either a "cpg_id" column (e.g. "chr1:12345", as
+#                      written by Tier1_consensus_CpGs.tsv / Tier2_consensus_
+#                      CpGs.tsv from 14_DMR_DSS_analysis.R) or separate
+#                      Chr/Pos columns; either format is auto-detected.
 #   --outdir          Output directory for figures
 #   --datadir         Output directory for tables
 #   --genome          Genome build [default: hg38]

@@ -237,7 +237,7 @@ computePairwiseCorr <- function(data,
 
 C25 <- c(
   "dodgerblue2", "#E31A1C", "green4", "#6A3D9A", "#FF7F00",
-  "lightgrey",   "gold1",   "skyblue2", "#FB9A99", "palegreen2",
+  "black",   "gold1",   "skyblue2", "#FB9A99", "palegreen2",
   "#CAB2D6",     "#FDBF6F", "gray70", "khaki2", "maroon",
   "orchid1",     "deeppink1", "blue1", "steelblue4", "darkturquoise",
   "green1",      "yellow4", "yellow3", "darkorange4", "brown"
@@ -245,7 +245,7 @@ C25 <- c(
 
 C12 <- c(
   "dodgerblue2", "#E31A1C", "green4",      "#6A3D9A",
-  "#FF7F00",     "grey",    "gold1",        "khaki2",
+  "#FF7F00",     "black",    "gold1",        "khaki2",
   "brown",       "darkturquoise", "palegreen2", "orchid1"
 )
 

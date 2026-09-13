@@ -6,7 +6,8 @@
 #   Computes pairwise Pearson correlations between all methylation platforms
 #   across increasing coverage thresholds. Generates per-sampleset correlation
 #   line plots (Blood, Fibroblast, GIAB) and an extended high-coverage
-#   ONT vs TWIST comparison for GIAB.
+#   ONT vs. PacBio vs. TWIST comparison for GIAB1/GIAB2 (Figure 4B),
+#   since these are the three highest-coverage methods assessed.
 #
 # Input:
 #   --datadir   Directory containing merged methylation matrices
@@ -56,6 +57,15 @@ METHODS_NO_PACBIO <- c("ONT" = "ONT", "WGEC" = "WGEC",
                         "RRBS" = "RRBS", "TWIST" = "TWIST")
 METHODS_PACBIO    <- c("ONT" = "ONT", "WGEC" = "WGEC", "RRBS" = "RRBS",
                         "TWIST" = "TWIST", "PacBio" = "PacBio")
+# Order matters here: combn() on names(METHODS_HIGHCOV) walks pairs in this
+# order, so ONT-PacBio, ONT-TWIST, PacBio-TWIST -- matching the legend order
+# and colors used in the paper's Figure 4B.
+METHODS_HIGHCOV   <- c("ONT" = "ONT", "PacBio" = "PacBio", "TWIST" = "TWIST")
+HIGHCOV_COMPARISON_COLORS <- c(
+  "ONT vs PacBio"   = "dodgerblue2",
+  "ONT vs TWIST"    = "green4",
+  "PacBio vs TWIST" = "black"
+)
 COVERAGES         <- c(0, 5, 10, 15)
 COVERAGES_HIGH    <- c(0, 5, 10, 15, 20, 25, 30, 35, 40)
 COV_MAX_PLOT      <- 15
@@ -130,39 +140,14 @@ corr_highcov_giab <- computeCorrAcrossCoverages(
 )
 corr_highcov <- rbind(corr_highcov_blood, corr_highcov_fibro, corr_highcov_giab)
 
-cat("[3/5] Computing ONT vs TWIST high-coverage correlation...\n")
+cat("[3/5] Computing ONT vs. PacBio vs. TWIST high-coverage correlations...\n")
 
-ont_twist_rows <- lapply(COVERAGES_HIGH, function(cov_thr) {
-  lapply(c("GIAB1", "GIAB2"), function(smp) {
-    if (cov_thr == 0) {
-      filtered <- giab
-    } else {
-      cov_cols <- c(
-        paste0("ONT_cov_",   smp),
-        paste0("TWIST_cov_", smp)
-      )
-      cov_cols <- cov_cols[cov_cols %in% colnames(giab)]
-      filtered <- extractCovDf(giab, threshold = cov_thr, cov_cols = cov_cols)
-    }
-    corr_val <- cor(
-      filtered[[paste0("ONT_",   smp)]],
-      filtered[[paste0("TWIST_", smp)]],
-      use = "pairwise.complete.obs"
-    )
-    data.frame(
-      Sample      = smp,
-      Correlation = corr_val,
-      Cov         = cov_thr,
-      stringsAsFactors = FALSE
-    )
-  })
-})
-corr_ont_twist <- rbindlist(unlist(ont_twist_rows, recursive = FALSE))
-corr_ont_twist[, Coverage2 := ifelse(Cov == 0, "None", paste0(Cov, "x"))]
-corr_ont_twist[, Coverage2 := factor(
-  Coverage2,
-  levels = ifelse(COVERAGES_HIGH == 0, "None", paste0(COVERAGES_HIGH, "x"))
-)]
+corr_ont_pacbio_twist <- computeCorrAcrossCoverages(
+  data      = giab,
+  samples   = c("GIAB1", "GIAB2"),
+  methods   = METHODS_HIGHCOV,
+  coverages = COVERAGES_HIGH
+)
 
 cat("[4/5] Generating figures...\n")
 
@@ -231,19 +216,24 @@ ggsave(p_highcov,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- 5.5 ONT vs TWIST extended (0–40x, GIAB1 + GIAB2) ----------------------
+# ---- 5.5 ONT vs. PacBio vs. TWIST, high coverage (GIAB1 + GIAB2) -----------
+# Reproduces Figure 4B: the three highest-coverage methods assessed
+# (ONT, PacBio, TWIST), compared pairwise across 0-40x coverage thresholds,
+# faceted by GIAB sample. Colors match the paper exactly.
 
 p_ont_twist <- ggplot(
-  corr_ont_twist,
-  aes(x = Coverage2, y = Correlation, color = Sample)
+  corr_ont_pacbio_twist,
+  aes(x = Coverage2, y = Correlation, color = Comparison)
 ) +
   geom_point(size = 4) +
-  geom_line(aes(group = Sample)) +
+  geom_line(aes(group = Comparison)) +
+  scale_color_manual(values = HIGHCOV_COMPARISON_COLORS) +
+  facet_wrap(~sample, ncol = 2) +
   scale_x_discrete(
     labels = ifelse(COVERAGES_HIGH == 0, "None", paste0(COVERAGES_HIGH, "x"))
   ) +
   labs(
-    title = "Correlation Changes with respect\nto increasing Coverage thresholds in ONT vs. TWIST",
+    title = "Correlation Changes with respect\nto increasing Coverage thresholds in High Coverage samples",
     x     = "Coverage Filter",
     y     = "Pearson Correlation coefficient"
   ) +

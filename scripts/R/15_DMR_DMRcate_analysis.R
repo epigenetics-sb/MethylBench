@@ -175,7 +175,7 @@ combined_df <- fread(
   na.strings = "NA"
 )
 
-required_coord_cols <- c("Chr", "Pos")
+required_coord_cols <- c("chr", "start")
 missing_coord_cols <- setdiff(required_coord_cols, colnames(combined_df))
 
 if (length(missing_coord_cols) > 0) {
@@ -185,7 +185,7 @@ if (length(missing_coord_cols) > 0) {
   )
 }
 
-combined_df[, cpg_id := paste0(Chr, ":", Pos)]
+combined_df[, cpg_id := paste0(chr, ":", start)]
 
 # -------------------------------------------------------------------------
 # Helper functions
@@ -328,8 +328,8 @@ number of coverage columns (%d).",
   )
 
   bsseq::BSseq(
-    chr = as.character(df$Chr),
-    pos = as.integer(df$Pos),
+    chr = as.character(df$chr),
+    pos = as.integer(df$start),
     M = unname(meth_mat),
     Cov = unname(cov_mat),
     sampleNames = sample_names

@@ -1,2 +1,6 @@
 *.bam\n*.fastq\n*.fastq.gz\n*.idat\ndata/\nresults/
 WGBS_to_WGEC.patch
+Figure4B_fix.patch
+fix_chr_pos_naming.patch
+fix_chr_pos_all_remaining.patch
+fix_upset_legend_and_heatmap_titles.patch

@@ -77,13 +77,13 @@ stats[, Sampleset_numbers := factor(Sampleset_numbers, levels = SAMPLESET_ORDER)
 # ---- 3.1 Overlapping CpGs per coverage filter -------------------------------
 
 to.plot <- melt(
-  cpg.stats[, c(1, 3, 4, 5, 6, 7)],
+  cpg.stats[, c(1, 3, 4, 5, 6, 7, 8)],
   id.vars = "Sample"
 )
 to.plot[, variable := as.character(variable)]
 to.plot[, Coverage := substr(variable, 5, nchar(variable))]
 
-x.labels <- c("None", "10x", "15x", "20x", "40x")
+x.labels <- c("None", "10x", "15x", "20x", "30x", "40x")
 
 p_cpg <- ggplot(to.plot, aes(x = Coverage, y = value, color = Sample, fill = Sample)) +
   geom_point(size = 4) +
@@ -258,7 +258,7 @@ ggsave(p_ont_genomic,
 
 ont_bases <- stats[
   Method == "ONT" & Sampleset %in% c("Blood", "Fibroblast"),
-  .(Sample, Method, qc_bases_sequenced = Mean_Cov)
+  .(Sample, Method, qc_bases_sequenced = Mean_Genome_Cov)
 ]
 
 p_ont_bases <- ggplot(
