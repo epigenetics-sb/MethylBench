@@ -4,8 +4,9 @@
 # =============================================================================
 # Description:
 #   Principal Component Analysis of CpG methylation profiles across methods
-#   and samples. PCA is computed on the rotation matrix (samples as variables,
-#   CpGs as observations) to visualize sample-level separation by method.
+#   and samples. PCA is computed on the transposed matrix (samples/methods
+#   as observations, CpGs as variables) and PCA SCORES (pca$x) are plotted
+#   to visualize sample-level separation by method.
 #
 #   Six PCA plots are generated:
 #     1. Blood  – with EPIC    (EPIC sites only, all methods)
@@ -14,6 +15,28 @@
 #     4. Fibro  – without EPIC (EPIC sites only, sequencing methods)
 #     5. Blood  – without EPIC (all overlapping CpGs at 10x, sequencing methods)
 #     6. Fibro  – without EPIC (all overlapping CpGs at 10x, sequencing methods)
+#
+# CHANGELOG (post-review fix, Reviewer 1 / Major comment 1):
+#   1) FIXED label/column desync:
+#      Method/Sample labels used to be built by hand as a SEPARATE vector
+#      (e.g. rep(SEQ_METHODS, each = 5): method-major order), while the
+#      matrix columns were produced by meth_cols() in SAMPLE-MAJOR order
+#      (methods cycle fastest: ONT_Blood1, TWIST_Blood1, WGBS_Blood1,
+#      RRBS_Blood1, ONT_Blood2, ...). The two orderings did not match, so
+#      many points in Figure 6 carried the wrong Method color / Sample
+#      shape. Labels are now parsed directly out of colnames(mat) via
+#      parse_meth_labels(), so they cannot desync from the matrix again —
+#      there is only one source of truth (the column names actually used
+#      to build `mat`), not two independently-maintained orderings.
+#   2) FIXED loadings-vs-scores confusion:
+#      PCA used to be run on the untransposed matrix (CpGs as rows, i.e.
+#      as "observations"; sample-method columns as "variables"), and
+#      pca$rotation (variable LOADINGS) was plotted as if it showed
+#      sample/method separation. PCA is now run on the TRANSPOSED matrix
+#      (samples/methods as rows/observations, CpGs as columns/variables,
+#      so each CpG is centered across samples — the standard convention
+#      for sample-level PCA), and pca$x (sample SCORES) is plotted, which
+#      is the conventional way to visualize separation between samples.
 #
 # Input:
 #   --all_path    Path to ALL.csv (merged matrix with EPIC columns)
@@ -106,19 +129,56 @@ cov_cols <- function(methods, samples, prefix_map = c("WGEC" = "WGBS")) {
   }) |> as.vector()
 }
 
-runPCA <- function(mat, methods, samples, label = "") {
-  stopifnot(ncol(mat) == length(methods))
-  stopifnot(ncol(mat) == length(samples))
+#' Parse Method and Sample labels directly from a methylation matrix's
+#' own column names (e.g. "ONT_Blood1", "WGBS_Fibro3", "EPIC_Blood2").
+#'
+#' This replaces the previous approach of maintaining a second,
+#' independently-ordered label vector (rep(...,each=...) / rep(...,times=...))
+#' alongside the column-building logic in meth_cols()/cov_cols(). Deriving
+#' the labels from the actual colnames() of the matrix that goes into
+#' prcomp() makes it structurally impossible for labels and columns to
+#' fall out of sync, regardless of what order meth_cols() happens to
+#' produce columns in.
+parse_meth_labels <- function(col_names, prefix_map = c("WGBS" = "WGEC")) {
+  m  <- regmatches(
+    col_names,
+    regexec("^([A-Za-z0-9]+)_((?:Blood|Fibro)[0-9]+)$", col_names)
+  )
+  ok <- lengths(m) == 3
+  if (!all(ok)) {
+    stop(
+      "parse_meth_labels(): could not parse method/sample from column(s): ",
+      paste(col_names[!ok], collapse = ", ")
+    )
+  }
+  methods <- vapply(m, `[[`, character(1), 2)
+  samples <- vapply(m, `[[`, character(1), 3)
+  methods <- unname(ifelse(methods %in% names(prefix_map),
+                            prefix_map[methods], methods))
+  list(methods = methods, samples = samples)
+}
 
-  pca      <- prcomp(mat)
-  pca_mat  <- as.data.frame(pca$rotation)
+runPCA <- function(mat, label = "") {
+  # mat: CpGs (rows) x sample/method columns (colnames like "ONT_Blood1")
+  labels <- parse_meth_labels(colnames(mat))
+
+  # Transpose so that samples/methods are the OBSERVATIONS (rows) and CpGs
+  # are the VARIABLES (columns). prcomp() then centers each CpG across
+  # samples (the standard convention for sample-level PCA), and pca$x
+  # (scores) has exactly one row per input column, in the original column
+  # order -- so `labels` is guaranteed to line up with it.
+  # scale. = FALSE: beta-values already live on a common [0,1] scale;
+  # scaling to unit variance would inflate the influence of low-variance
+  # (e.g. near-0 or near-1) CpGs relative to biologically variable ones.
+  pca      <- prcomp(t(mat), center = TRUE, scale. = FALSE)
+  pca_mat  <- as.data.frame(pca$x)
   var_expl <- summary(pca)$importance[2, ] * 100  # proportion of variance
 
   cat(sprintf("\n--- PCA: %s ---\n", label))
   print(summary(pca))
 
-  pca_mat$Method <- methods
-  pca_mat$Sample <- samples
+  pca_mat$Method <- labels$methods
+  pca_mat$Sample <- labels$samples
 
   return(list(pca_mat = pca_mat, var_expl = var_expl))
 }
@@ -168,10 +228,7 @@ bl_epic_cols <- intersect(bl_epic_cols, colnames(all))
 bl_epic      <- all[, ..bl_epic_cols]
 bl_epic      <- bl_epic[complete.cases(bl_epic)]
 
-bl_methods   <- c(rep("EPIC", 5), rep(SEQ_METHODS, each = 5))
-bl_samples   <- c(BLOOD_IDS,      rep(BLOOD_IDS, length(SEQ_METHODS)))
-
-res <- runPCA(bl_epic, bl_methods, bl_samples, label = "Blood with EPIC")
+res <- runPCA(bl_epic, label = "Blood with EPIC")
 plot_pca(res$pca_mat, res$var_expl, "PCA_Blood_EPIC.png")
 
 # Fibro with EPIC -------------------------------------------------------
@@ -184,10 +241,7 @@ fb_epic_cols <- intersect(fb_epic_cols, colnames(all))
 fb_epic      <- all[, ..fb_epic_cols]
 fb_epic      <- fb_epic[complete.cases(fb_epic)]
 
-fb_methods   <- c(rep("EPIC", 5), rep(SEQ_METHODS, each = 5))
-fb_samples   <- c(FIBRO_IDS,      rep(FIBRO_IDS, length(SEQ_METHODS)))
-
-res <- runPCA(fb_epic, fb_methods, fb_samples, label = "Fibro with EPIC")
+res <- runPCA(fb_epic, label = "Fibro with EPIC")
 plot_pca(res$pca_mat, res$var_expl, "PCA_Fibro_EPIC.png")
 
 cat("[2/3] Running PCAs on ALL matrix (sequencing methods on EPIC sites)...\n")
@@ -201,11 +255,7 @@ epic_mask_bl <- complete.cases(all[, ..bl_epic_cols])
 bl_seq       <- all[epic_mask_bl, ..bl_seq_cols]
 bl_seq       <- bl_seq[complete.cases(bl_seq)]
 
-seq_methods  <- rep(SEQ_METHODS, each = 5)
-seq_samples  <- rep(BLOOD_IDS, length(SEQ_METHODS))
-
-res <- runPCA(bl_seq, seq_methods, seq_samples,
-              label = "Blood without EPIC (on EPIC sites)")
+res <- runPCA(bl_seq, label = "Blood without EPIC (on EPIC sites)")
 plot_pca(res$pca_mat, res$var_expl, "PCA_Blood_noEPIC_onEPICsites.png")
 
 # Fibro without EPIC, on EPIC sites ------------------------------------
@@ -216,10 +266,7 @@ epic_mask_fb <- complete.cases(all[, ..fb_epic_cols])
 fb_seq       <- all[epic_mask_fb, ..fb_seq_cols]
 fb_seq       <- fb_seq[complete.cases(fb_seq)]
 
-seq_samples_f <- rep(FIBRO_IDS, length(SEQ_METHODS))
-
-res <- runPCA(fb_seq, seq_methods, seq_samples_f,
-              label = "Fibro without EPIC (on EPIC sites)")
+res <- runPCA(fb_seq, label = "Fibro without EPIC (on EPIC sites)")
 plot_pca(res$pca_mat, res$var_expl, "PCA_Fibro_noEPIC_onEPICsites.png")
 
 cat("[3/3] Running PCAs on without-EPIC matrices (10x filter, all CpGs)...\n")
@@ -234,8 +281,7 @@ bl_meth_cols <- intersect(bl_meth_cols, colnames(bl_10x))
 bl_10x       <- bl_10x[, ..bl_meth_cols]
 bl_10x       <- bl_10x[complete.cases(bl_10x)]
 
-res <- runPCA(bl_10x, seq_methods, seq_samples,
-              label = "Blood without EPIC (10x, all CpGs)")
+res <- runPCA(bl_10x, label = "Blood without EPIC (10x, all CpGs)")
 plot_pca(res$pca_mat, res$var_expl, "PCA_Blood_noEPIC.png")
 
 # Fibro without EPIC, 10x ---------------------------------------------
@@ -248,8 +294,7 @@ fb_meth_cols <- intersect(fb_meth_cols, colnames(fb_10x))
 fb_10x       <- fb_10x[, ..fb_meth_cols]
 fb_10x       <- fb_10x[complete.cases(fb_10x)]
 
-res <- runPCA(fb_10x, seq_methods, seq_samples_f,
-              label = "Fibro without EPIC (10x, all CpGs)")
+res <- runPCA(fb_10x, label = "Fibro without EPIC (10x, all CpGs)")
 plot_pca(res$pca_mat, res$var_expl, "PCA_Fibro_noEPIC.png")
 
 cat(sprintf("\nDone. 6 figures written to: %s\n", opt$outdir))

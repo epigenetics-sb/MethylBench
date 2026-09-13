@@ -20,6 +20,39 @@
 #     - DMR tables and pairwise DMR Jaccard matrices are exported.
 #     - DMR count, width and Jaccard figures are generated.
 #
+# CHANGELOG (post-review fix, Reviewer 1 / Major comment 2, DSS part):
+#   FIXED missing subject-level pairing at the single-CpG (DML) level:
+#     Blood and fibroblast samples come from the SAME 5 individuals, but
+#     DSS::DMLtest() only supports an unpaired two-group comparison -- it
+#     has no argument for a subject/pairing covariate at all. Significant
+#     DMLs are therefore now called from DSS::DMLfit.multiFactor() /
+#     DMLtest.multiFactor() with a `~ subject + group` design
+#     (run_dss_tissue_paired()), analogous to the `~ subject + group`
+#     fix already applied to the limma model in limma_diff_meth.R.
+#     Subject IDs are parsed directly from the BSseq sample names
+#     (get_subject_id_dss()), not assumed from column position -- same
+#     principle as the PCA label-desync fix in 11_pca.R.
+#
+#   DOCUMENTED, NOT FIXED -- region-level DMR calling (callDMR()) remains
+#   UNPAIRED:
+#     DSS::callDMR() only accepts the object returned by the two-group
+#     DMLtest() (it needs the smoothed mu1/mu2/diff/areastat fields that
+#     only that function produces); DMLtest.multiFactor()'s output has no
+#     smoothed per-region statistic and cannot be passed to callDMR() at
+#     all. DSS has no paired/subject-adjusted equivalent of its regional
+#     DMR caller. The unpaired run_dss_tissue() + callDMR() pipeline is
+#     therefore kept exactly as before, but ONLY to feed the region-level
+#     DMR outputs (dmr_DSS_counts/width/Jaccard figures); it is no longer
+#     used for the single-CpG significance calls (dml_sig) reported in
+#     the *_DML_significant_*.tsv tables and DML counts, which now come
+#     from the paired test above.
+#     This is a genuine, currently irreducible limitation of the DSS
+#     package, not an oversight that can be patched here -- it should be
+#     stated explicitly in the manuscript's Methods/Limitations (e.g.
+#     "DML significance was assessed with a subject-paired model; the
+#     downstream regional DMR segmentation uses DSS's built-in two-group
+#     caller, which does not currently support paired designs").
+#
 # Input:
 #   --all_path      Path to the combined methylation matrix
 #                   (EPIC + sequencing methods).
@@ -355,6 +388,79 @@ run_dss_tissue <- function(bs_blood,
   )
 }
 
+#' Parse subject/individual ID directly from a BSseq sample name (e.g.
+#' "ONT_Blood3" -> "3"). Blood/Fibro samples sharing a trailing number
+#' are assumed to come from the same individual (matched sampling).
+#' Same rationale as get_subject_id() in limma_diff_meth.R: deriving
+#' identity from the actual sample names, rather than assuming
+#' blood/fibro samples line up positionally, means pairing cannot
+#' silently break if sample order changes upstream.
+get_subject_id_dss <- function(sample_names) {
+  m  <- regmatches(sample_names,
+                    regexec("(?:Blood|Fibro)([0-9]+)$", sample_names))
+  ok <- lengths(m) == 2
+  if (!all(ok)) {
+    stop("get_subject_id_dss(): could not parse subject ID from sample(s): ",
+         paste(sample_names[!ok], collapse = ", "))
+  }
+  vapply(m, `[[`, character(1), 2)
+}
+
+#' Per-CpG mean-methylation difference (Blood - Fibro), computed directly
+#' from the raw M/Cov counts of a combined BSseq object. This is the
+#' effect-size companion to the paired DMLtest.multiFactor() p-values
+#' below, since that function tests significance but does not itself
+#' report group means / a delta-beta-like effect size.
+compute_delta_beta_bsseq <- function(bs_combined, blood_samples, fibro_samples) {
+  M    <- getCoverage(bs_combined, type = "M")
+  Cov  <- getCoverage(bs_combined, type = "Cov")
+  beta <- M / Cov
+  beta[Cov == 0] <- NA
+
+  rowMeans(beta[, blood_samples, drop = FALSE], na.rm = TRUE) -
+    rowMeans(beta[, fibro_samples, drop = FALSE], na.rm = TRUE)
+}
+
+#' Subject-adjusted (paired) single-CpG differential methylation test.
+#'
+#' DSS::DMLtest() (run_dss_tissue() above) only supports a plain
+#' two-group comparison -- it has no covariate/pairing argument at all.
+#' DSS::DMLfit.multiFactor() / DMLtest.multiFactor() DO support an
+#' arbitrary design formula, so subject pairing is added here via a
+#' `~ subject + group` model, mirroring the `~ subject + group` fix
+#' already applied to the limma model in limma_diff_meth.R.
+#'
+#' NOTE: the returned `test` data frame (chr, pos, stat, pvals, fdrs) has
+#' no smoothed mu1/mu2/diff/areastat fields, so it CANNOT be passed to
+#' DSS::callDMR() -- see the CHANGELOG at the top of this file for why
+#' region-level DMR calling therefore stays on the unpaired path.
+run_dss_tissue_paired <- function(bs_blood, bs_fibro) {
+
+  blood_samples <- sampleNames(bs_blood)
+  fibro_samples <- sampleNames(bs_fibro)
+  bs_combined   <- BiocGenerics::combine(bs_blood, bs_fibro)
+
+  subject_ids <- get_subject_id_dss(sampleNames(bs_combined))
+
+  design <- data.frame(
+    subject = factor(subject_ids, levels = sort(unique(subject_ids))),
+    group   = factor(
+      c(rep("Blood", length(blood_samples)),
+        rep("Fibro", length(fibro_samples))),
+      levels = c("Fibro", "Blood")
+    )
+  )
+
+  fit  <- DMLfit.multiFactor(bs_combined, design = design,
+                              formula = ~ subject + group)
+  test <- DMLtest.multiFactor(fit, coef = "groupBlood")
+
+  delta_beta <- compute_delta_beta_bsseq(bs_combined, blood_samples, fibro_samples)
+  stopifnot(nrow(test) == length(delta_beta))
+
+  list(test = test, delta_beta = delta_beta, bs_combined = bs_combined)
+}
+
 call_dss_dmr <- function(dml_result,
                          delta = DELTA_CUTOFF,
                          p.threshold = P_THRESHOLD,
@@ -597,6 +703,11 @@ run_tier <- function(bsseq_list, tier_label) {
       method
     ))
 
+    # UNPAIRED two-group DMLtest() -- kept ONLY to feed callDMR() below.
+    # DSS's region-level DMR caller has no paired/multi-factor equivalent
+    # (see CHANGELOG at the top of this file), so this is a documented,
+    # deliberate exception -- it is no longer used for single-CpG
+    # significance calling (that now comes from the paired test below).
     dml <- run_dss_tissue(
       bsseq_list[[key_blood]],
       bsseq_list[[key_fibro]]
@@ -604,11 +715,25 @@ run_tier <- function(bsseq_list, tier_label) {
 
     dml_list[[method]] <- dml
 
-    dml_sig <- callDML(
-      dml,
-      p.threshold = FDR_CUTOFF,
-      delta = DELTA_CUTOFF
+    # PAIRED (subject-adjusted) single-CpG test: this is what determines
+    # dml_sig / the *_DML_significant_*.tsv tables and reported DML
+    # counts, i.e. the actual answer to "is this CpG differentially
+    # methylated between blood and fibroblast" for these 5 individuals.
+    dml_paired <- run_dss_tissue_paired(
+      bsseq_list[[key_blood]],
+      bsseq_list[[key_fibro]]
     )
+
+    test_df <- dml_paired$test
+    test_df$delta_beta <- dml_paired$delta_beta
+
+    dml_sig <- test_df[
+      !is.na(test_df$fdrs) &
+        test_df$fdrs < FDR_CUTOFF &
+        abs(test_df$delta_beta) > DELTA_CUTOFF,
+      ,
+      drop = FALSE
+    ]
 
     fwrite(
       as.data.table(dml_sig),

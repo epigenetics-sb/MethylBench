@@ -27,6 +27,38 @@
 #   Additionally writes:
 #     all_methods_limma_combined.csv 
 #
+# CHANGELOG (post-review fix, Reviewer 1 / Major comment 2, pairing part
+# ONLY -- see note below on scope):
+#   FIXED missing subject-level pairing:
+#     Blood and fibroblast samples come from the SAME 5 individuals (paired
+#     design), but the design matrix used to be group-only (~group),
+#     ignoring which blood sample belongs to which fibroblast sample.
+#     Subject identity is now parsed directly from the sample suffix in the
+#     column names actually used for each method (get_subject_id()) --
+#     deriving it from the real column names rather than assuming
+#     blood_cols[i]/fibro_cols[i] line up positionally, the same principle
+#     used to fix the PCA label desync in 11_pca.R -- and the design is now
+#     ~subject + group, so the Blood-vs-Fibro test is adjusted for each
+#     individual's baseline methylation level.
+#
+#   NOT CHANGED HERE, ON PURPOSE -- beta- vs. M-value scale:
+#     This script implements the EXPLORATORY differential methylation stage
+#     (Section 2.5.1 in the manuscript: limma and Wilcoxon applied to the
+#     full overlapping CpG set, n=146,704, on beta-values, for a like-for-
+#     like comparison of the two statistical frameworks across all five
+#     platforms). The Methods text's statement that "EPIC was analyzed
+#     using limma on M-values" refers specifically to the PRIMARY analysis
+#     (Section 2.5.2: DSS Beta-Binomial for sequencing methods on the
+#     Tier1/Tier2 consensus set, with limma-on-M-values as the necessary
+#     EPIC counterpart, since EPIC yields no read counts for DSS). Applying
+#     an M-value transform to EPIC only in THIS script would (a) not match
+#     what generated the already-reported Fig. 7A exploratory numbers, and
+#     (b) break the intentional same-scale comparison between limma and
+#     Wilcoxon in Section 2.5.1. The beta-vs-M-value scale question is
+#     therefore intentionally left untouched here; see the response letter
+#     for how the primary-analysis (Tier1/Tier2) EPIC M-value step is
+#     addressed.
+#
 # Input:
 #   --all_path    Path to ALL_with_EPIC.csv
 #                 Column naming convention:
@@ -89,6 +121,27 @@ FDR_CUTOFF   <- opt$fdr_cutoff
 DELTA_CUTOFF <- opt$delta_cutoff
 BLOOD_IDS    <- paste0("Blood", 1:5)
 FIBRO_IDS    <- paste0("Fibro",  1:5)
+
+#' Parse the subject/individual ID directly from a sample column name
+#' (e.g. "EPIC_Blood3" -> "3", "WGBS_Fibro3" -> "3"). Blood/Fibro pairs
+#' with the same trailing number are assumed to come from the same
+#' individual (matched blood/fibroblast sampling per subject; see Methods,
+#' "Matched blood and fibroblast samples from five human individuals").
+#'
+#' Deriving this from the actual column names -- rather than assuming
+#' blood_cols[i] and fibro_cols[i] line up positionally -- means pairing
+#' cannot silently break if columns are ever reordered or subsetted
+#' upstream (the same principle as the PCA label-desync fix in 11_pca.R).
+get_subject_id <- function(col_names) {
+  m  <- regmatches(col_names,
+                    regexec("(?:Blood|Fibro)([0-9]+)$", col_names))
+  ok <- lengths(m) == 2
+  if (!all(ok)) {
+    stop("get_subject_id(): could not parse subject ID from column(s): ",
+         paste(col_names[!ok], collapse = ", "))
+  }
+  vapply(m, `[[`, character(1), 2)
+}
 
 cat("[1/4] Loading ALL matrix...\n")
 
@@ -161,13 +214,25 @@ for (method_label in names(method_defs)) {
     next
   }
 
-  # Design matrix: Blood = 1, Fibro = 0
-  n_blood   <- length(blood_cols)
-  n_fibro   <- length(fibro_cols)
+  # Design matrix: Blood = 1, Fibro = 0, ADJUSTED for subject identity
+  # (paired design: the same 5 individuals contribute both a blood and a
+  # fibroblast sample -- see Methods). Subject IDs are parsed from the
+  # actual column names (get_subject_id()), not assumed from column
+  # position, so pairing stays correct even if blood_cols/fibro_cols were
+  # ever reordered upstream.
+  n_blood     <- length(blood_cols)
+  n_fibro     <- length(fibro_cols)
+  subject_ids <- get_subject_id(c(blood_cols, fibro_cols))
+  subject     <- factor(subject_ids, levels = sort(unique(subject_ids)))
+
   group     <- factor(c(rep("Blood", n_blood), rep("Fibro", n_fibro)),
                       levels = c("Fibro", "Blood"))
-  design    <- model.matrix(~group)
-  colnames(design) <- c("Intercept", "Blood_vs_Fibro")
+  design    <- model.matrix(~ subject + group)
+  colnames(design) <- c(
+    "Intercept",
+    paste0("Subject_", levels(subject)[-1]),
+    "Blood_vs_Fibro"
+  )
 
   fit  <- lmFit(beta_mat, design)
   fit2 <- eBayes(fit)
