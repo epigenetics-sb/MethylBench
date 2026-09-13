@@ -200,7 +200,6 @@ cpg_list  <- list()
 
 for (f in bed_files) {
   method <- gsub("_sig_DMCs\\.bed$|_sig_DMRs\\.bed$", "", basename(f))
-  method <- ifelse(method == "WGBS", "WGEC", method)
   gr <- read_bed_as_gr(f)
   if (length(gr) == 0) next
 

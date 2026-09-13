@@ -1,4 +1,4 @@
-!/usr/bin/env Rscript
+#!/usr/bin/env Rscript
 # =============================================================================
 # MethylBench – PCA Analysis
 # =============================================================================
@@ -21,7 +21,7 @@
 #      Method/Sample labels used to be built by hand as a SEPARATE vector
 #      (e.g. rep(SEQ_METHODS, each = 5): method-major order), while the
 #      matrix columns were produced by meth_cols() in SAMPLE-MAJOR order
-#      (methods cycle fastest: ONT_Blood1, TWIST_Blood1, WGBS_Blood1,
+#      (methods cycle fastest: ONT_Blood1, TWIST_Blood1, WGEC_Blood1,
 #      RRBS_Blood1, ONT_Blood2, ...). The two orderings did not match, so
 #      many points in Figure 6 carried the wrong Method color / Sample
 #      shape. Labels are now parsed directly out of colnames(mat) via
@@ -42,9 +42,9 @@
 #   --all_path    Path to ALL.csv (merged matrix with EPIC columns)
 #                 Expected column naming after buildMergedMatrix(include_epic=TRUE):
 #                   EPIC_Blood1..5, EPIC_Fibro1..5, EPIC_GIAB1..2
-#                   ONT_Blood1..5, WGBS_Blood1..5, TWIST_Blood1..5, RRBS_Blood1..5
-#                   ONT_Fibro1..5, WGBS_Fibro1..5, TWIST_Fibro1..5, RRBS_Fibro1..5
-#                   ONT_cov_*, WGBS_cov_*, TWIST_cov_*, RRBS_cov_*
+#                   ONT_Blood1..5, WGEC_Blood1..5, TWIST_Blood1..5, RRBS_Blood1..5
+#                   ONT_Fibro1..5, WGEC_Fibro1..5, TWIST_Fibro1..5, RRBS_Fibro1..5
+#                   ONT_cov_*, WGEC_cov_*, TWIST_cov_*, RRBS_cov_*
 #   --blood_path  Path to Blood_without_EPIC.csv
 #   --fibro_path  Path to Fibro_without_EPIC.csv
 #   --outdir      Output directory for figures
@@ -109,28 +109,21 @@ FIBRO_IDS  <- paste0("Fibro",  1:5)
 SEQ_METHODS <- c("ONT", "TWIST", "WGEC", "RRBS")  # sequencing-only, no EPIC
 
 # Column name helpers
-meth_cols <- function(methods, samples, prefix_map = c("WGEC" = "WGBS")) {
+meth_cols <- function(methods, samples) {
   # Returns methylation column names in method x sample order
-  # prefix_map: remap method label to actual column prefix (WGEC -> WGBS)
   sapply(samples, function(smp) {
-    sapply(methods, function(m) {
-      pfx <- if (m %in% names(prefix_map)) prefix_map[[m]] else m
-      paste0(pfx, "_", smp)
-    })
+    sapply(methods, function(m) paste0(m, "_", smp))
   }) |> as.vector()
 }
 
-cov_cols <- function(methods, samples, prefix_map = c("WGEC" = "WGBS")) {
+cov_cols <- function(methods, samples) {
   sapply(samples, function(smp) {
-    sapply(methods, function(m) {
-      pfx <- if (m %in% names(prefix_map)) prefix_map[[m]] else m
-      paste0(pfx, "_cov_", smp)
-    })
+    sapply(methods, function(m) paste0(m, "_cov_", smp))
   }) |> as.vector()
 }
 
 #' Parse Method and Sample labels directly from a methylation matrix's
-#' own column names (e.g. "ONT_Blood1", "WGBS_Fibro3", "EPIC_Blood2").
+#' own column names (e.g. "ONT_Blood1", "WGEC_Fibro3", "EPIC_Blood2").
 #'
 #' This replaces the previous approach of maintaining a second,
 #' independently-ordered label vector (rep(...,each=...) / rep(...,times=...))
@@ -139,7 +132,7 @@ cov_cols <- function(methods, samples, prefix_map = c("WGEC" = "WGBS")) {
 #' prcomp() makes it structurally impossible for labels and columns to
 #' fall out of sync, regardless of what order meth_cols() happens to
 #' produce columns in.
-parse_meth_labels <- function(col_names, prefix_map = c("WGBS" = "WGEC")) {
+parse_meth_labels <- function(col_names) {
   m  <- regmatches(
     col_names,
     regexec("^([A-Za-z0-9]+)_((?:Blood|Fibro)[0-9]+)$", col_names)
@@ -153,8 +146,6 @@ parse_meth_labels <- function(col_names, prefix_map = c("WGBS" = "WGEC")) {
   }
   methods <- vapply(m, `[[`, character(1), 2)
   samples <- vapply(m, `[[`, character(1), 3)
-  methods <- unname(ifelse(methods %in% names(prefix_map),
-                            prefix_map[methods], methods))
   list(methods = methods, samples = samples)
 }
 

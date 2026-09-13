@@ -52,9 +52,9 @@ if (!dir.exists(opt$datadir)) stop(paste("Directory not found:", opt$datadir))
 
 dir.create(opt$outdir, recursive = TRUE, showWarnings = FALSE)
 
-METHODS_NO_PACBIO <- c("ONT" = "ONT", "WGEC" = "WGBS",
+METHODS_NO_PACBIO <- c("ONT" = "ONT", "WGEC" = "WGEC",
                         "RRBS" = "RRBS", "TWIST" = "TWIST")
-METHODS_PACBIO    <- c("ONT" = "ONT", "WGEC" = "WGBS", "RRBS" = "RRBS",
+METHODS_PACBIO    <- c("ONT" = "ONT", "WGEC" = "WGEC", "RRBS" = "RRBS",
                         "TWIST" = "TWIST", "PacBio" = "PacBio")
 COVERAGES         <- c(0, 5, 10, 15)
 COVERAGES_HIGH    <- c(0, 5, 10, 15, 20, 25, 30, 35, 40)

@@ -67,9 +67,9 @@ if (!dir.exists(opt$datadir)) stop(paste("Directory not found:", opt$datadir))
 
 dir.create(opt$outdir, recursive = TRUE, showWarnings = FALSE)
 
-METHODS_NO_PACBIO <- c("ONT" = "ONT", "WGEC" = "WGBS",
+METHODS_NO_PACBIO <- c("ONT" = "ONT", "WGEC" = "WGEC",
                         "RRBS" = "RRBS", "TWIST" = "TWIST")
-METHODS_PACBIO    <- c("ONT" = "ONT", "WGEC" = "WGBS", "RRBS" = "RRBS",
+METHODS_PACBIO    <- c("ONT" = "ONT", "WGEC" = "WGEC", "RRBS" = "RRBS",
                         "TWIST" = "TWIST", "PacBio" = "PacBio")
 METHODS_HIGH_COV  <- c("ONT" = "ONT", "TWIST" = "TWIST", "PacBio" = "PacBio")
 
@@ -325,19 +325,19 @@ if (!is.null(opt$epic_path) && file.exists(opt$epic_path)) {
 
   all_mat <- fread(opt$epic_path, header = TRUE, sep = ",", na.strings = "NA")
 
-  # Select only the columns needed: EPIC betas + ONT/WGBS/TWIST/RRBS/PacBio
+  # Select only the columns needed: EPIC betas + ONT/WGEC/TWIST/RRBS/PacBio
   # for the three representative samples, then apply joint 10x filter
   keep_meth <- c(
     "Sample3_blood_EPIC", "Sample4_FBK_EPIC", "NA24385_HG002",
-    "ONT_Blood3",  "WGBS_Blood3",  "TWIST_Blood3",  "RRBS_Blood3",
-    "ONT_Fibro4",  "WGBS_Fibro4",  "TWIST_Fibro4",  "RRBS_Fibro4",
-    "ONT_GIAB2",   "WGBS_GIAB2",   "TWIST_GIAB2",   "RRBS_GIAB2",
+    "ONT_Blood3",  "WGEC_Blood3",  "TWIST_Blood3",  "RRBS_Blood3",
+    "ONT_Fibro4",  "WGEC_Fibro4",  "TWIST_Fibro4",  "RRBS_Fibro4",
+    "ONT_GIAB2",   "WGEC_GIAB2",   "TWIST_GIAB2",   "RRBS_GIAB2",
     "PacBio_GIAB2"
   )
   keep_cov <- c(
-    "ONT_cov_Blood3",  "WGBS_cov_Blood3",  "TWIST_cov_Blood3",  "RRBS_cov_Blood3",
-    "ONT_cov_Fibro4",  "WGBS_cov_Fibro4",  "TWIST_cov_Fibro4",  "RRBS_cov_Fibro4",
-    "ONT_cov_GIAB2",   "WGBS_cov_GIAB2",   "TWIST_cov_GIAB2",   "RRBS_cov_GIAB2",
+    "ONT_cov_Blood3",  "WGEC_cov_Blood3",  "TWIST_cov_Blood3",  "RRBS_cov_Blood3",
+    "ONT_cov_Fibro4",  "WGEC_cov_Fibro4",  "TWIST_cov_Fibro4",  "RRBS_cov_Fibro4",
+    "ONT_cov_GIAB2",   "WGEC_cov_GIAB2",   "TWIST_cov_GIAB2",   "RRBS_cov_GIAB2",
     "PacBio_cov_GIAB2"
   )
 
@@ -363,7 +363,6 @@ if (!is.null(opt$epic_path) && file.exists(opt$epic_path)) {
 
   # Split variable into Method and Sample
   tp_epic[, c("Method","Sample") := tstrsplit(variable, "_", fixed = TRUE, keep = 1:2)]
-  tp_epic[Method == "WGBS", Method := "WGEC"]
 
   tp_epic[, Group := interaction(Sample, Method, sep = "_")]
   tp_epic[, Group := factor(Group, levels = c(

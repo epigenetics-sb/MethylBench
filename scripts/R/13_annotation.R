@@ -143,10 +143,6 @@ limma_res <- fread(opt$limma_combined, header = TRUE, sep = ",",
 wilcox_res <- fread(opt$wilcoxon, header = TRUE, sep = ",",
                     na.strings = "NA")
 
-# Ensure WGEC label consistency
-limma_res[Method  == "WGBS", Method := "WGEC"]
-wilcox_res[Method == "WGBS", Method := "WGEC"]
-
 cat(sprintf("  Limma   : %d rows, %d methods\n",
   nrow(limma_res), length(unique(limma_res$Method))))
 cat(sprintf("  Wilcoxon: %d rows, %d methods\n",
@@ -190,7 +186,7 @@ cat(sprintf("  Limma significant DMCs: %d (across all methods)\n", nrow(limma_si
 
 for (m in unique(limma_sig$Method)) {
   df_m   <- limma_sig[Method == m]
-  prefix <- if (m == "WGEC") "WGBS" else m
+  prefix <- m
   out    <- file.path(opt$datadir, paste0(prefix, "_sig_DMCs.bed"))
   write_bed(df_m, out)
   cat(sprintf("    %s: %d DMCs → %s\n", m, nrow(df_m), basename(out)))
@@ -207,7 +203,7 @@ cat(sprintf("  Wilcoxon significant DMCs: %d\n", nrow(wilcox_sig)))
 
 for (m in unique(wilcox_sig$Method)) {
   df_m   <- wilcox_sig[Method == m]
-  prefix <- if (m == "WGEC") "WGBS" else m
+  prefix <- m
   out    <- file.path(opt$datadir, paste0(prefix, "_sig_DMCs_wilcoxon.bed"))
   write_bed(df_m, out)
   cat(sprintf("    %s: %d DMCs → %s\n", m, nrow(df_m), basename(out)))
@@ -258,7 +254,7 @@ methods_to_annotate <- unique(limma_sig$Method)
 annot_results       <- list()
 
 for (m in methods_to_annotate) {
-  prefix <- if (m == "WGEC") "WGBS" else m
+  prefix <- m
   bed_path <- file.path(opt$datadir, paste0(prefix, "_sig_DMCs.bed"))
 
   if (!file.exists(bed_path)) {
@@ -283,7 +279,6 @@ if (length(annot_results) == 0) {
 }
 
 annot_combined <- bind_rows(annot_results)
-annot_combined$Method[annot_combined$Method == "WGBS"] <- "WGEC"
 
 fwrite(as.data.table(annot_combined),
   file.path(opt$datadir, "all_methods_annotated.csv"),

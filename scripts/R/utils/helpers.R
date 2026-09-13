@@ -254,9 +254,8 @@ METHOD_COLORS <- c(
   "PacBio" = "#E55E00",
   "EPIC"   = "#009E73",
   "TWIST"  = "#DC79A7",
-  "WGBS"   = "purple",
-  "RRBS"   = "#0072B2",
-  "WGEC"   = "purple"
+  "WGEC"   = "purple",
+  "RRBS"   = "#0072B2"
 )
 
 get_colors <- function() {
@@ -362,7 +361,7 @@ buildMergedMatrix <- function(samplesheet,
       }
 
       dt <- dt[!duplicated(coord)]
-      prefix <- ifelse(m == "WGEC", "WGBS", m)
+      prefix <- m
       setnames(dt,
         c("cov", "meth"),
         c(paste0(prefix, "_cov_", smp), paste0(prefix, "_", smp))

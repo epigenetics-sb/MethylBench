@@ -1,1 +1,2 @@
 *.bam\n*.fastq\n*.fastq.gz\n*.idat\ndata/\nresults/
+WGBS_to_WGEC.patch

@@ -17,16 +17,15 @@
 #   --all_path      Path to ALL_with_EPIC.csv (EPIC + sequencing matrix)
 #                   Column naming convention in this matrix:
 #                     EPIC_Blood1..5, EPIC_Fibro1..5
-#                     ONT_Blood1..5,  WGBS_Blood1..5, TWIST_Blood1..5, RRBS_Blood1..5
-#                     ONT_Fibro1..5,  WGBS_Fibro1..5, TWIST_Fibro1..5, RRBS_Fibro1..5
-#                     ONT_cov_*,      WGBS_cov_*,     TWIST_cov_*,     RRBS_cov_*
-#                   NOTE: WGBS prefix = WGEC method (legacy naming in CSV files)
+#                     ONT_Blood1..5,  WGEC_Blood1..5, TWIST_Blood1..5, RRBS_Blood1..5
+#                     ONT_Fibro1..5,  WGEC_Fibro1..5, TWIST_Fibro1..5, RRBS_Fibro1..5
+#                     ONT_cov_*,      WGEC_cov_*,     TWIST_cov_*,     RRBS_cov_*
 #   --blood_path    Path to Blood_without_EPIC.csv
 #   --fibro_path    Path to Fibro_without_EPIC.csv
 #   --limma_dir     Directory with per-method limma DMC files:
 #                     EPIC_Blood_vs_Fibroblast.csv, ONT_Blood_vs_Fibroblast.csv,
 #                     TWIST_Blood_vs_Fibroblast.csv, RRBS_Blood_vs_Fibroblast.csv,
-#                     WGBS_Blood_vs_Fibroblast.csv
+#                     WGEC_Blood_vs_Fibroblast.csv
 #                   Expected columns: V1=CpG, V6=FDR
 #   --outdir        Output directory for figures
 #   --datadir       Output directory for intermediate data files
@@ -145,8 +144,8 @@ methods <- list(
     select_meth_cols(all, "ONT",   FIBRO_IDS)
   ),
   WGEC  = cbind(
-    select_meth_cols(all, "WGBS",  BLOOD_IDS),   # WGBS prefix = WGEC
-    select_meth_cols(all, "WGBS",  FIBRO_IDS)
+    select_meth_cols(all, "WGEC",  BLOOD_IDS),
+    select_meth_cols(all, "WGEC",  FIBRO_IDS)
   ),
   TWIST = cbind(
     select_meth_cols(all, "TWIST", BLOOD_IDS),
@@ -170,15 +169,10 @@ for (method in names(methods)) {
     rownames(df) <- paste0("CpG_", seq_len(nrow(df)))
   }
 
-  blood_cols <- grep(paste0("(?i)^(WGBS|", method, ")_blood"),
+  blood_cols <- grep(paste0("(?i)^", method, "_blood"),
                      colnames(df), value = TRUE, perl = TRUE)
-  fibro_cols <- grep(paste0("(?i)^(WGBS|", method, ")_fibro"),
+  fibro_cols <- grep(paste0("(?i)^", method, "_fibro"),
                      colnames(df), value = TRUE, perl = TRUE)
-
-  if (method == "WGEC") {
-    blood_cols <- grep("(?i)^WGBS_blood", colnames(df), value = TRUE, perl = TRUE)
-    fibro_cols <- grep("(?i)^WGBS_fibro", colnames(df), value = TRUE, perl = TRUE)
-  }
 
   blood_mat <- as.matrix(df[, ..blood_cols, drop = FALSE])
   fibro_mat <- as.matrix(df[, ..fibro_cols, drop = FALSE])
@@ -331,7 +325,7 @@ limma_files <- list(
   ONT   = file.path(opt$limma_dir, "ONT_Blood_vs_Fibroblast.csv"),
   TWIST = file.path(opt$limma_dir, "TWIST_Blood_vs_Fibroblast.csv"),
   RRBS  = file.path(opt$limma_dir, "RRBS_Blood_vs_Fibroblast.csv"),
-  WGEC  = file.path(opt$limma_dir, "WGBS_Blood_vs_Fibroblast.csv")
+  WGEC  = file.path(opt$limma_dir, "WGEC_Blood_vs_Fibroblast.csv")
 )
 
 missing_limma <- names(limma_files)[!sapply(limma_files, file.exists)]
@@ -547,7 +541,7 @@ value_cols_all <- colnames(all)[
 
 meta <- tibble(col = value_cols_all) %>%
   mutate(
-    Method    = str_extract(col, "EPIC|ONT|TWIST|RRBS|WGBS"),
+    Method    = str_extract(col, "EPIC|ONT|TWIST|RRBS|WGEC"),
     SampleSet = case_when(
       str_detect(col, "Blood") ~ "Blood",
       str_detect(col, "Fibro") ~ "Fibro",
@@ -563,9 +557,6 @@ variance_df <- meta %>%
     .groups  = "drop"
   ) %>%
   unnest(Variance)
-
-# Relabel WGBS → WGEC in output
-variance_df$Method[variance_df$Method == "WGBS"] <- "WGEC"
 
 fwrite(as.data.table(variance_df),
   file.path(opt$datadir, "Variances.csv"),
@@ -609,7 +600,7 @@ coverage_df <- covs %>%
     values_to = "Coverage"
   ) %>%
   mutate(
-    Method    = str_extract(col, "ONT|TWIST|WGBS|RRBS"),
+    Method    = str_extract(col, "ONT|TWIST|WGEC|RRBS"),
     SampleSet = case_when(
       str_detect(col, "Blood") ~ "Blood",
       str_detect(col, "Fibro") ~ "Fibro"
@@ -617,9 +608,6 @@ coverage_df <- covs %>%
   ) %>%
   filter(!is.na(Method), !is.na(SampleSet)) %>%
   select(SampleSet, Method, Coverage)
-
-# Relabel WGBS → WGEC
-coverage_df$Method[coverage_df$Method == "WGBS"] <- "WGEC"
 
 p_cov <- ggplot(coverage_df, aes(x = Method, y = Coverage, fill = Method)) +
   geom_boxplot() +

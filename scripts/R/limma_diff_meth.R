@@ -12,7 +12,7 @@
 #     ONT_Blood_vs_Fibroblast.csv
 #     TWIST_Blood_vs_Fibroblast.csv
 #     RRBS_Blood_vs_Fibroblast.csv
-#     WGBS_Blood_vs_Fibroblast.csv  
+#     WGEC_Blood_vs_Fibroblast.csv
 #
 #   Output columns (no header, positional):
 #     V1 = CpG identifier (chr:start)
@@ -63,9 +63,8 @@
 #   --all_path    Path to ALL_with_EPIC.csv
 #                 Column naming convention:
 #                   EPIC_Blood1..5,  EPIC_Fibro1..5
-#                   ONT_Blood1..5,   WGBS_Blood1..5,  TWIST_Blood1..5, RRBS_Blood1..5
-#                   ONT_Fibro1..5,   WGBS_Fibro1..5,  TWIST_Fibro1..5, RRBS_Fibro1..5
-#                 NOTE: WGBS prefix = WGEC method (legacy naming in CSV files)
+#                   ONT_Blood1..5,   WGEC_Blood1..5,  TWIST_Blood1..5, RRBS_Blood1..5
+#                   ONT_Fibro1..5,   WGEC_Fibro1..5,  TWIST_Fibro1..5, RRBS_Fibro1..5
 #   --outdir      Output directory for per-method CSV files
 #   --fdr_cutoff  BH-adjusted p-value threshold for significance [default: 0.05]
 #   --delta_cutoff Absolute delta-beta threshold [default: 0.1]
@@ -123,7 +122,7 @@ BLOOD_IDS    <- paste0("Blood", 1:5)
 FIBRO_IDS    <- paste0("Fibro",  1:5)
 
 #' Parse the subject/individual ID directly from a sample column name
-#' (e.g. "EPIC_Blood3" -> "3", "WGBS_Fibro3" -> "3"). Blood/Fibro pairs
+#' (e.g. "EPIC_Blood3" -> "3", "WGEC_Fibro3" -> "3"). Blood/Fibro pairs
 #' with the same trailing number are assumed to come from the same
 #' individual (matched blood/fibroblast sampling per subject; see Methods,
 #' "Matched blood and fibroblast samples from five human individuals").
@@ -159,7 +158,7 @@ all_cols <- colnames(all)
 method_defs <- list(
   EPIC  = get_method_cols("EPIC",  BLOOD_IDS, FIBRO_IDS, all_cols),
   ONT   = get_method_cols("ONT",   BLOOD_IDS, FIBRO_IDS, all_cols),
-  WGEC  = get_method_cols("WGBS",  BLOOD_IDS, FIBRO_IDS, all_cols),
+  WGEC  = get_method_cols("WGEC",  BLOOD_IDS, FIBRO_IDS, all_cols),
   TWIST = get_method_cols("TWIST", BLOOD_IDS, FIBRO_IDS, all_cols),
   RRBS  = get_method_cols("RRBS",  BLOOD_IDS, FIBRO_IDS, all_cols)
 )
@@ -267,8 +266,7 @@ for (method_label in names(method_defs)) {
   out_cols <- intersect(out_cols, colnames(top))
   out_df   <- top[, out_cols, drop = FALSE]
 
-  # Output filename: keep WGBS for WGEC (downstream script expects WGBS filename)
-  file_prefix <- if (method_label == "WGEC") "WGBS" else method_label
+  file_prefix <- method_label
   out_file    <- file.path(opt$outdir,
                    paste0(file_prefix, "_Blood_vs_Fibroblast.csv"))
 
@@ -286,9 +284,6 @@ cat("\n[3/4] Writing combined results...\n")
 
 all_results <- bind_rows(results_list)
 
-# Ensure WGEC label in combined output (not WGBS)
-all_results$Method[all_results$Method == "WGBS"] <- "WGEC"
-
 combined_file <- file.path(opt$outdir, "all_methods_limma_combined.csv")
 fwrite(as.data.table(all_results),
   combined_file,
@@ -304,8 +299,7 @@ for (m in names(results_list)) {
   df     <- results_list[[m]]
   n_tot  <- nrow(df)
   n_sig  <- sum(df$Significant, na.rm = TRUE)
-  label  <- if (m == "WGEC") "WGEC" else m
-  cat(sprintf("  %-8s  %8d  %8d\n", label, n_tot, n_sig))
+  cat(sprintf("  %-8s  %8d  %8d\n", m, n_tot, n_sig))
 }
 
 cat(sprintf("\nDone. Results written to: %s\n", opt$outdir))
