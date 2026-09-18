@@ -4,3 +4,10 @@ Figure4B_fix.patch
 fix_chr_pos_naming.patch
 fix_chr_pos_all_remaining.patch
 fix_upset_legend_and_heatmap_titles.patch
+add_readRRBSTab.patch
+fix_datatable_negation_syntax.patch
+fix_fcoalesce_type_error.patch
+fix_raw_data_reading_helpers.patch
+fix_readBedMethyl_mixed_delimiter.patch
+fix_readPacBio_header_lines.patch
+scripts/R/.Rhistory

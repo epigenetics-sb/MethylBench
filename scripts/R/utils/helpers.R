@@ -33,21 +33,41 @@ readBedMethyl <- function(path) {
 
   dataset <- fread(path, header = FALSE, sep = "\t")
 
-  expected_cols <- 18L
-  if (ncol(dataset) != expected_cols) {
-    warning(sprintf(
-      "readBedMethyl: expected %d columns, got %d in file: %s",
-      expected_cols, ncol(dataset), path
-    ))
-  }
-
-  colnames(dataset) <- c(
+  full_colnames <- c(
     "chr", "start", "end", "modbase", "score", "strand",
     "start1", "end1", "color", "Nvalid_cov", "fraction_mod",
     "Nmod", "Ncanonical", "Nother_mod", "Ndelete",
     "Nfail", "Ndiff", "Nnocall"
-  )[seq_len(ncol(dataset))]
+  )
 
+  if (ncol(dataset) == 10L) {
+    # Malformed export seen in some GIAB modkit files: the first 9 fields
+    # are properly tab-separated, but the remaining 9 numeric fields got
+    # joined by spaces into a single tab-field instead of also being
+    # tab-separated. Split that last column further on whitespace.
+    split_vals <- tstrsplit(dataset[[10]], "\\s+", perl = TRUE)
+    if (length(split_vals) != 9L) {
+      stop(sprintf(
+        "readBedMethyl: column 10 in %s did not split into the expected 9 whitespace-separated values (got %d) -- inspect the file's exact format before proceeding.",
+        path, length(split_vals)
+      ))
+    }
+    extra_dt <- as.data.table(lapply(split_vals, as.numeric))
+    dataset  <- cbind(dataset[, 1:9], extra_dt)
+    cat(sprintf(
+      "  [readBedMethyl] %s: repaired mixed tab/space-delimited format (9 tab fields + 1 space-joined blob -> 18 columns)\n",
+      basename(path)
+    ))
+  }
+
+  if (ncol(dataset) != 18L) {
+    stop(sprintf(
+      "readBedMethyl: expected 18 columns (or 9 tab fields + 1 space-joined blob of 9 values), got %d in file: %s -- refusing to guess the column layout.",
+      ncol(dataset), path
+    ))
+  }
+
+  colnames(dataset) <- full_colnames
   return(dataset)
 }
 
@@ -55,38 +75,158 @@ readPacBio <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
 
+  # pb-cpg-tools output starts with several "##key=value" metadata lines
+  # (VCF-style), e.g. "##pb-cpg-tools-version=3.0.0". Strip any leading
+  # comment lines before parsing, regardless of how many there are, and
+  # regardless of .bed vs .bed.gz.
+  is_gz <- grepl("\\.gz$", path, ignore.case = TRUE)
+  cmd <- if (is_gz) {
+    sprintf("zcat %s | grep -v '^#'", shQuote(path))
+  } else {
+    sprintf("grep -v '^#' %s", shQuote(path))
+  }
+  dataset <- fread(cmd = cmd, header = FALSE, sep = "\t")
+
+  full_colnames <- c(
+    "chr", "start", "end", "score", "haplotype",
+    "coverage", "N_modified", "N_unmodified", "percentage"
+  )
+  if (ncol(dataset) != length(full_colnames)) {
+    stop(sprintf(
+      "readPacBio: expected %d columns after stripping '#' header lines, got %d in file: %s -- refusing to guess the column layout.",
+      length(full_colnames), ncol(dataset), path
+    ))
+  }
+  colnames(dataset) <- full_colnames
+
+  if (!is.numeric(dataset$start)) {
+    stop(sprintf(
+      "readPacBio: 'start' column is non-numeric in %s even after stripping '#' lines -- inspect the file's exact format.",
+      path
+    ))
+  }
+
+  return(dataset)
+}
+
+#' Read a raw Bismark coverage file (.bismark.cov / .bismark.cov.gz), as
+#' produced by coverage2cytosine WITHOUT --merge_CpG. Format is tab-separated,
+#' 6 columns, 1-based single-base coordinates:
+#'   chr  start  end  percentage(0-100)  count_methylated  count_unmethylated
+#' NOTE: start/end are already 1-based -- do NOT apply any +1/-1 shift here.
+#' Because --merge_CpG was not used, the +strand C of a CpG (position N) and
+#' the -strand C (position N+1) appear as two SEPARATE rows; use
+#' mergeCpGStrands() afterwards to combine them into one row per CpG.
+#' @return data.table with columns chr, start, count_meth, count_unmeth.
+readBismarkCovRaw <- function(path) {
+  stopifnot(is.character(path), length(path) == 1)
+  if (!file.exists(path)) stop(paste("File not found:", path))
+
   dataset <- fread(path, header = FALSE, sep = "\t")
 
-  expected_cols <- 9L
+  expected_cols <- 6L
   if (ncol(dataset) != expected_cols) {
-    warning(sprintf(
-      "readPacBio: expected %d columns, got %d in file: %s",
+    stop(sprintf(
+      "readBismarkCovRaw: expected %d tab-separated columns (chr,start,end,percentage,count_meth,count_unmeth), got %d in file: %s",
       expected_cols, ncol(dataset), path
     ))
   }
 
   colnames(dataset) <- c(
-    "chr", "start", "end", "score", "haplotype",
-    "coverage", "N_modified", "N_unmodified", "percentage"
-  )[seq_len(ncol(dataset))]
+    "chr", "start", "end", "percentage", "count_meth", "count_unmeth"
+  )
 
-  return(dataset)
+  dataset[, .(chr, start, count_meth, count_unmeth)]
 }
 
-#' @return data.table with named columns.
-readBismarkMeth <- function(path, correct_coords = FALSE) {
+#' Read the lab's custom RRBS .tab format, produced from raw Bismark
+#' .cov.gz via: awk '{print $1,$2,$6+$5,$6,$4/100}'
+#' i.e. columns: chr, start, coverage, count_unmeth, fraction(0-1).
+#' start is untouched from the raw .cov.gz, which is already 1-based -- do
+#' NOT apply any coordinate shift. Like WGEC/TWIST, this is NOT strand-
+#' merged (derived from the same un-merged raw Bismark output) -- follow
+#' with mergeCpGStrands() after computing count_meth.
+#' @return data.table with columns chr, start, count_meth, count_unmeth.
+readRRBSTab <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
 
   dataset <- fread(path, header = FALSE, sep = " ")
 
-  colnames(dataset) <- c("chr", "start", "coverage", "methylated", "percentage")
-
-  if (isTRUE(correct_coords)) {
-    dataset[, start := start + 1L]
+  expected_cols <- 5L
+  if (ncol(dataset) != expected_cols) {
+    stop(sprintf(
+      "readRRBSTab: expected %d space-separated columns (chr,start,coverage,count_unmeth,fraction), got %d in file: %s",
+      expected_cols, ncol(dataset), path
+    ))
   }
 
-  return(dataset)
+  colnames(dataset) <- c("chr", "start", "coverage", "count_unmeth", "fraction")
+  dataset[, count_meth := coverage - count_unmeth]
+
+  dataset[, .(chr, start, count_meth, count_unmeth)]
+}
+
+
+#'
+#' Bismark (without --merge_CpG) reports the +strand C of a CpG dinucleotide
+#' at position N and the -strand C at position N+1 as two independent rows.
+#' A naive "does start-1 exist" check is NOT sufficient to pair them
+#' correctly when CpGs are directly adjacent (e.g. positions N, N+1, N+2 all
+#' present, where N+2 is actually the NEXT CpG's own +strand, not a partner
+#' of N+1) -- that would silently mismatch unrelated CpGs.
+#'
+#' This instead does a greedy left-to-right pairing within each maximal run
+#' of consecutive integer positions (per chromosome): (1st,2nd), (3rd,4th),
+#' etc. If a run has odd length, the trailing element is kept as an
+#' unpaired singleton (rather than merged with an unrelated neighbor) --
+#' this happens when one strand of a CpG had zero coverage and Bismark
+#' therefore never emitted a row for it.
+#'
+#' Validated against a reference sequential implementation across pair/
+#' singleton/run-of-3/run-of-4/run-of-5/multi-chromosome-boundary cases.
+#'
+#' @param dt data.table with columns chr, start, count_meth, count_unmeth
+#'   (one row per Bismark-reported strand-specific cytosine call).
+#' @return data.table with columns chr, start, count_meth, count_unmeth,
+#'   one row per CpG, anchored at the lower (+strand) position.
+mergeCpGStrands <- function(dt) {
+  stopifnot(is.data.table(dt))
+  dt <- dt[, .(chr, start, count_meth, count_unmeth)]
+  setorder(dt, chr, start)
+
+  # Row index within each chromosome (resets at every chr boundary).
+  dt[, row_in_chr := seq_len(.N), by = chr]
+
+  # While start increases by exactly 1 per row, (start - row_in_chr) stays
+  # constant -- so this value changes exactly at the boundaries of maximal
+  # runs of consecutive positions. rleid() also always bumps on chr change.
+  dt[, run_id := rleid(chr, start - row_in_chr)]
+  dt[, row_in_chr := NULL]
+
+  # Within each run, alternate anchor (odd local_idx) / partner (even
+  # local_idx): (1st,2nd) is a pair, (3rd,4th) is the next pair, etc.
+  dt[, local_idx := seq_len(.N), by = run_id]
+  dt[, is_partner := (local_idx %% 2L == 0L)]
+
+  # For each anchor, look up the immediately following row's counts WITHIN
+  # THE SAME RUN (shift() with by= returns NA at run boundaries, which
+  # correctly identifies an anchor with no partner).
+  dt[, partner_meth   := shift(count_meth,   -1L), by = run_id]
+  dt[, partner_unmeth := shift(count_unmeth, -1L), by = run_id]
+
+  anchors <- dt[is_partner == FALSE]
+  anchors[, count_meth   := count_meth   + ifelse(is.na(partner_meth),   0, partner_meth)]
+  anchors[, count_unmeth := count_unmeth + ifelse(is.na(partner_unmeth), 0, partner_unmeth)]
+
+  n_pairs     <- sum(!is.na(anchors$partner_meth))
+  n_singleton <- nrow(anchors) - n_pairs
+  cat(sprintf(
+    "    mergeCpGStrands: %d input rows -> %d CpG positions (%d strand-pairs merged, %d singleton/unpaired)\n",
+    nrow(dt), nrow(anchors), n_pairs, n_singleton
+  ))
+
+  anchors[, .(chr, start, count_meth, count_unmeth)]
 }
 
 readEPIC <- function(path, sample.name) {
@@ -312,7 +452,15 @@ buildMergedMatrix <- function(samplesheet,
                                epic_path      = NULL,
                                ont_suffix     = "_modkit_pileup.bed",
                                bismark_suffix = ".bismark.cov.gz",
-                               pacbio_suffix  = ".GRCh38.pbmm2.combined.bed") {
+                               pacbio_suffix  = ".GRCh38.pbmm2.combined.bed",
+                               pacbio_paths   = NULL) {
+  # pacbio_paths: optional named character vector mapping this pipeline's
+  # sample label (e.g. "GIAB1") to the EXACT raw PacBio file path (e.g.
+  # ".../HG001.GRCh38.cpg_pileup.combined.bed"). Use this when the raw
+  # PacBio files use different sample names than the rest of the pipeline
+  # and/or mix compressed (.bed.gz) and uncompressed (.bed) files -- fread()
+  # transparently handles either. If a sample isn't in pacbio_paths, falls
+  # back to the datadir/PacBio/<sample><pacbio_suffix> convention.
 
   stopifnot(is.data.table(samplesheet))
   stopifnot(sampleset %in% c("Blood", "Fibroblast", "GIAB"))
@@ -337,24 +485,35 @@ buildMergedMatrix <- function(samplesheet,
         if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
         dt <- readBedMethyl(path)
         dt <- dt[modbase == "m"]
-        dt[, start := start + 1L]
+        dt[, start := start + 1L]  # 0-based BED -> 1-based
         dt <- dt[, .(coord = paste0(chr,":",start),
                      cov   = Nvalid_cov,
-                     meth  = fraction_mod)]
+                     meth  = fraction_mod / 100)]  # fraction_mod is 0-100
 
       } else if (m %in% c("RRBS","WGEC","TWIST")) {
         path <- file.path(datadir, m, paste0(smp, bismark_suffix))
         if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
-        dt <- readBismarkMeth(path, correct_coords = TRUE)
-        dt <- dt[, .(coord = paste0(chr,":",start),
-                     cov   = coverage,
-                     meth  = percentage / 100)]
+        # Raw Bismark .cov.gz is already 1-based -- NO coordinate shift.
+        # It also reports +/- strand of each CpG as separate rows, so
+        # these must be merged before computing per-CpG methylation.
+        dt_raw <- readBismarkCovRaw(path)
+        dt_cpg <- mergeCpGStrands(dt_raw)
+        cov_total <- dt_cpg$count_meth + dt_cpg$count_unmeth
+        dt <- dt_cpg[, .(
+          coord = paste0(chr, ":", start),
+          cov   = cov_total,
+          meth  = fifelse(cov_total > 0, count_meth / cov_total, NA_real_)
+        )]
 
       } else if (m == "PacBio") {
-        path <- file.path(datadir, "PacBio", paste0(smp, pacbio_suffix))
+        path <- if (!is.null(pacbio_paths) && smp %in% names(pacbio_paths)) {
+          pacbio_paths[[smp]]
+        } else {
+          file.path(datadir, "PacBio", paste0(smp, pacbio_suffix))
+        }
         if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
         dt <- readPacBio(path)
-        dt[, start := start + 1L]
+        dt[, start := start + 1L]  # 0-based BED -> 1-based
         dt <- dt[, .(coord = paste0(chr,":",start),
                      cov   = coverage,
                      meth  = percentage / 100)]

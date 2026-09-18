@@ -216,7 +216,7 @@ METHOD_PREFIX <- c(
 METHOD_COLORS <- c(
   ONT   = "#E69F00",
   TWIST = "#009E73",
-  WGEC  = "#5654E9",
+  WGEC  = "purple",
   RRBS  = "#0072B2"
 )
 
