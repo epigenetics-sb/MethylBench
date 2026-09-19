@@ -10,4 +10,5 @@ fix_fcoalesce_type_error.patch
 fix_raw_data_reading_helpers.patch
 fix_readBedMethyl_mixed_delimiter.patch
 fix_readPacBio_header_lines.patch
+fix_heatmap_NA_crash.patch
 scripts/R/.Rhistory

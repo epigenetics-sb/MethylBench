@@ -9,7 +9,7 @@
 #   analysis was considered."
 #
 #   Starting from the existing Tier 1 BSseq objects (output of
-#   14_DMR_DSS_analysis.R: BSseq_Tier1.rds), this script:
+#   13_DMR_DSS_analysis.R: BSseq_Tier1.rds), this script:
 #
 #     1. Determines a common target coverage T_target (default: the median
 #        per-CpG coverage of the lowest-depth platform, i.e. ONT, unless
@@ -20,7 +20,7 @@
 #        fraction in expectation. CpGs already at or below T_target are left
 #        unchanged (cannot be "upsampled").
 #     3. Re-runs the identical DSS::DMLtest() + callDMR() workflow used in
-#        14_DMR_DSS_analysis.R on the depth-matched data.
+#        13_DMR_DSS_analysis.R on the depth-matched data.
 #     4. Recomputes pairwise CpG-level Pearson correlation of delta-beta and
 #        pairwise DMR Jaccard indices under depth-matched conditions.
 #     5. Reports, for each platform pair, the concordance metric BEFORE vs.
@@ -33,7 +33,7 @@
 #   require re-alignment of raw reads.
 #
 # Input:
-#   --bsseq_tier1   Path to BSseq_Tier1.rds produced by 14_DMR_DSS_analysis.R
+#   --bsseq_tier1   Path to BSseq_Tier1.rds produced by 13_DMR_DSS_analysis.R
 #   --outdir        Output directory for figures
 #   --datadir       Output directory for tables / intermediate RDS
 #   --target_cov    Optional fixed target coverage (default: NULL -> auto)
@@ -49,7 +49,7 @@
 #   - Fig_S_downsampling_concordance.png        before/after summary figure
 #
 # Usage:
-#   Rscript scripts/R/16_downsampling_sensitivity.R \
+#   Rscript scripts/R/14_downsampling_sensitivity.R \
 #     --bsseq_tier1  results/dmr_dss/BSseq_Tier1.rds \
 #     --outdir       results/figures/ \
 #     --datadir      results/dmr_dss/downsampling/

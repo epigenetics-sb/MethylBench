@@ -251,6 +251,25 @@ mat_wide <- all_results %>%
   column_to_rownames("CpG") %>%
   as.matrix()
 
+# Heatmap clustering (hclust) cannot handle NA/NaN/Inf. With genome-wide
+# (not pre-intersected) input matrices, most CpGs are NOT covered by every
+# method, so mat_wide is largely sparse/NA. Restrict to CpGs with complete
+# data across all methods before ranking by variance -- a cross-method
+# variance/heatmap comparison isn't meaningful for a CpG some methods never
+# tested anyway.
+n_before_complete <- nrow(mat_wide)
+mat_wide <- mat_wide[complete.cases(mat_wide), , drop = FALSE]
+cat(sprintf(
+  "  Heatmap input: %d / %d CpGs have complete data across all methods (%d dropped, NA in at least one method)\n",
+  nrow(mat_wide), n_before_complete, n_before_complete - nrow(mat_wide)
+))
+if (nrow(mat_wide) < 5000) {
+  warning(sprintf(
+    "Only %d complete-case CpGs available -- Heatmap_top5000.png (and possibly top1000/top500) will use fewer CpGs than its name suggests, or fail if fewer than requested.",
+    nrow(mat_wide)
+  ))
+}
+
 col_fun <- colorRamp2(c(-0.5, 0, 0.5), c("blue", "white", "red"))
 vars    <- apply(mat_wide, 1, var, na.rm = TRUE)
 
@@ -275,6 +294,14 @@ ha <- HeatmapAnnotation(
 )
 
 make_heatmap <- function(n_cpgs, filename) {
+  n_available <- nrow(mat_wide)
+  if (n_cpgs > n_available) {
+    warning(sprintf(
+      "%s: requested top %d CpGs but only %d complete-case CpGs are available -- using all %d instead.",
+      filename, n_cpgs, n_available, n_available
+    ))
+    n_cpgs <- n_available
+  }
   top_cpgs <- names(sort(vars, decreasing = TRUE))[seq_len(n_cpgs)]
   mat_top  <- mat_wide[top_cpgs, , drop = FALSE]
 
