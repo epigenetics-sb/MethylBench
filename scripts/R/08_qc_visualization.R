@@ -491,7 +491,11 @@ plot_coverage_uniformity <- function(all_dt,
       strip.background = element_rect(fill = "grey90", color = NA),
       panel.grid.minor = element_blank(),
       axis.text.x      = element_text(angle = 45, hjust = 1),
-      legend.position  = "bottom"
+      legend.position  = "bottom",
+      plot.title = element_text(hjust = 0.5),
+      axis.text  = element_text(size = 22),
+      axis.title = element_text(size = 22),
+      text       = element_text(size = 22)
     )
 
   p_ecdf <- ggplot(cov_long, aes(x = NormCoverage, color = Method)) +
@@ -511,13 +515,17 @@ plot_coverage_uniformity <- function(all_dt,
       strip.background = element_rect(fill = "grey90", color = NA),
       panel.grid.minor = element_blank(),
       axis.text.x      = element_text(angle = 45, hjust = 1),
-      legend.position  = "bottom"
+      legend.position  = "bottom",
+      plot.title = element_text(hjust = 0.5),
+      axis.text  = element_text(size = 22),
+      axis.title = element_text(size = 22),
+      text       = element_text(size = 22)
     )
 
   ggsave(file.path(out_dir, "Coverage_Uniformity_Density.png"),
-         p_density, width = 13, height = 4.5, units = "in", dpi = 300)
+         p_density, width = 13, height = 7, units = "in", dpi = 300)
   ggsave(file.path(out_dir, "Coverage_Uniformity_ECDF.png"),
-         p_ecdf, width = 13, height = 4.5, units = "in", dpi = 300)
+         p_ecdf, width = 13, height = 7, units = "in", dpi = 300)
 
   invisible(list(density = p_density, ecdf = p_ecdf,
                   cv_summary = cv_summary, long = cov_long))
