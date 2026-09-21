@@ -12,3 +12,12 @@ fix_readBedMethyl_mixed_delimiter.patch
 fix_readPacBio_header_lines.patch
 fix_heatmap_NA_crash.patch
 scripts/R/.Rhistory
+add_buildCovLong_to_real_helpers.patch
+add_consistent_logging_08_qc.patch
+add_coverage_uniformity_figure.patch
+add_granular_overlap_diagnostics.patch
+fix_axis_range_outliers.patch
+fix_common_cpg_restriction.patch
+fix_logging_and_axes_08_qc_final.patch
+fix_method_colors_typo.patch
+fix_upset_missing_platform_and_diagnostics.patch

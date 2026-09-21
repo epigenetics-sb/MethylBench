@@ -147,6 +147,37 @@ readBismarkCovRaw <- function(path) {
 #' merged (derived from the same un-merged raw Bismark output) -- follow
 #' with mergeCpGStrands() after computing count_meth.
 #' @return data.table with columns chr, start, count_meth, count_unmeth.
+#' Restrict a wide methylation matrix to CpGs "covered by every platform",
+#' matching the paper's stated exploratory-analysis restriction ("all
+#' analyses were restricted to the common set of CpG sites covered across
+#' platforms"). A CpG counts as covered by a platform if at least one
+#' sample column for that platform is non-NA at that row -- this is
+#' deliberately more lenient than the Tier1/Tier2 10x-coverage consensus
+#' sets used elsewhere in the pipeline, which is appropriate for this
+#' specific exploratory step (see Methods: limma/Wilcoxon on n=146,704
+#' common CpGs, distinct from the later coverage-matched consensus sets).
+#'
+#' @param dt data.table containing the method's sample columns.
+#' @param method_prefixes character vector of method name prefixes (e.g.
+#'   c("EPIC","ONT","WGEC","TWIST","RRBS")); columns are matched by
+#'   `^<prefix>_` (case-insensitive), excluding any `_cov_` columns.
+#' @return logical vector, one per row of dt, TRUE where every prefix has
+#'   at least one non-NA sample column.
+platformsCoveredMask <- function(dt, method_prefixes) {
+  covered <- matrix(TRUE, nrow = nrow(dt), ncol = length(method_prefixes))
+  for (i in seq_along(method_prefixes)) {
+    p <- method_prefixes[i]
+    cols <- grep(paste0("(?i)^", p, "_(?!cov_)"), colnames(dt), value = TRUE, perl = TRUE)
+    if (length(cols) == 0) {
+      covered[, i] <- FALSE
+      next
+    }
+    sub <- dt[, ..cols]
+    covered[, i] <- rowSums(!is.na(sub)) > 0
+  }
+  apply(covered, 1, all)
+}
+
 readRRBSTab <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
@@ -319,6 +350,60 @@ buildMethLong <- function(data,
   result <- do.call(rbind, rows[seq_len(idx - 1L)])
   result$Method   <- factor(result$Method,   levels = names(methods))
   result$Coverage <- factor(result$Coverage, levels = sort(unique(coverages)))
+
+  return(result)
+}
+
+#' Build a long-format per-CpG coverage table across samples and methods,
+#' analogous to buildMethLong() but reading raw <Method>_cov_<Sample> columns
+#' instead of <Method>_<Sample> methylation fractions.
+#'
+#' @param data data.table containing <Method>_cov_<Sample> columns (e.g. the
+#'   merged CpG-level matrix produced by buildMergedMatrix()).
+#' @param samples character vector of sample labels (e.g. samplesheet$Sample).
+#' @param methods named character vector, names = display labels, values =
+#'   column-name prefixes, e.g. c(ONT="ONT", RRBS="RRBS", WGEC="WGEC",
+#'   TWIST="TWIST", PacBio="PacBio"). A method/sample combination whose
+#'   column doesn't exist (e.g. PacBio for non-GIAB samples) is silently
+#'   skipped, since PacBio is only present for GIAB1/GIAB2.
+#' @return data.table with columns Coverage (numeric, raw per-CpG coverage,
+#'   zero/NA entries dropped), Method (factor, levels = names(methods)),
+#'   Sample (character).
+buildCovLong <- function(data, samples, methods) {
+
+  stopifnot(is.data.table(data))
+  stopifnot(is.character(samples), length(samples) >= 1)
+  stopifnot(is.character(methods), !is.null(names(methods)))
+
+  rows <- vector("list", length(samples) * length(methods))
+  idx  <- 1L
+
+  for (smp in samples) {
+    for (method_label in names(methods)) {
+      cov_col <- paste0(methods[method_label], "_cov_", smp)
+
+      if (!cov_col %in% colnames(data)) {
+        # e.g. PacBio_cov_<sample> only exists for GIAB1/GIAB2 -- skip
+        # quietly rather than erroring, mirroring the sparse method
+        # coverage across sample sets (see buildMergedMatrix()).
+        next
+      }
+
+      cov_values <- data[[cov_col]]
+      cov_values <- cov_values[!is.na(cov_values) & cov_values > 0]
+      if (length(cov_values) == 0) next
+
+      rows[[idx]] <- data.table(
+        Coverage = cov_values,
+        Method   = method_label,
+        Sample   = smp
+      )
+      idx <- idx + 1L
+    }
+  }
+
+  result <- rbindlist(rows[seq_len(idx - 1L)])
+  result[, Method := factor(Method, levels = names(methods))]
 
   return(result)
 }

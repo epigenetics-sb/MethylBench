@@ -123,7 +123,40 @@ all   <- fread(opt$all_path,   header = TRUE, sep = ",", na.strings = "NA")
 blood <- fread(opt$blood_path, header = TRUE, sep = ",", na.strings = "NA")
 fibro <- fread(opt$fibro_path, header = TRUE, sep = ",", na.strings = "NA")
 
-cat(sprintf("  ALL  : %d CpGs\n", nrow(all)))
+cat(sprintf("  ALL  : %d CpGs (genome-wide, before common-platform restriction)\n", nrow(all)))
+
+# ---- Diagnostics: isolate WHERE the cross-platform intersection collapses -
+cat("\n[Diagnostics] Per-platform coverage (>=1 non-NA Blood/Fibro sample):\n")
+platform_masks <- list()
+for (p in c("EPIC", "ONT", "WGEC", "TWIST", "RRBS")) {
+  m <- platformsCoveredMask(all, p)
+  platform_masks[[p]] <- m
+  cat(sprintf("  %-6s: %d CpGs\n", p, sum(m)))
+}
+
+cat("\n[Diagnostics] Pairwise platform-coverage overlap:\n")
+pnames <- names(platform_masks)
+for (i in seq_along(pnames)) {
+  for (j in seq_along(pnames)) {
+    if (j <= i) next
+    n_ov <- sum(platform_masks[[pnames[i]]] & platform_masks[[pnames[j]]])
+    cat(sprintf("  %-6s vs %-6s: %d\n", pnames[i], pnames[j], n_ov))
+  }
+}
+
+seq4_mask <- platform_masks[["ONT"]] & platform_masks[["WGEC"]] & platform_masks[["TWIST"]] & platform_masks[["RRBS"]]
+cat(sprintf("\n[Diagnostics] ONT & WGEC & TWIST & RRBS (sequencing only, no EPIC): %d CpGs\n", sum(seq4_mask)))
+cat(sprintf("[Diagnostics] ...of those, also covered by EPIC: %d CpGs\n", sum(seq4_mask & platform_masks[["EPIC"]])))
+
+# Per the paper's stated methodology, this exploratory analysis is
+# restricted to the common set of CpGs covered by every platform (at least
+# one non-NA sample per platform) -- NOT the full genome-wide matrix. Genome-
+# wide input matrices are mostly NA for any single platform pair, let alone
+# all five simultaneously, so skipping this step leaves the heatmap/UpSet
+# steps downstream with only a handful of literal all-5-complete rows.
+common_platform_mask <- platformsCoveredMask(all, c("EPIC", "ONT", "WGEC", "TWIST", "RRBS"))
+all <- all[common_platform_mask]
+cat(sprintf("\n  ALL  : %d CpGs after restricting to those covered by all 5 platforms\n", nrow(all)))
 
 cat("[2/6] Building per-method matrices...\n")
 
@@ -244,6 +277,34 @@ ggsave(p_db,
 )
 
 # ---- 5.2 Heatmaps (top 500 / 1000 / 5000 variable CpGs) --------------------
+
+# ---- Diagnostics: cross-method CpG ID overlap ------------------------------
+# The exploratory all_results object is built independently per method (see
+# section 3), so a coordinate/ID mismatch between any pair of methods would
+# silently collapse the cross-method intersection without an obvious error
+# until the complete-case filter below. Surface this explicitly.
+cat("\n[Diagnostics] CpGs tested per method (exploratory, before any filtering):\n")
+print(table(all_results$Method))
+
+cat("\n[Diagnostics] Sample CpG IDs per method (first 3 each):\n")
+for (m in unique(all_results$Method)) {
+  ids <- head(all_results$CpG[all_results$Method == m], 3)
+  cat(sprintf("  %-6s: %s\n", m, paste(ids, collapse = " | ")))
+}
+
+cat("\n[Diagnostics] Pairwise CpG ID overlap between methods:\n")
+method_cpg_sets <- split(all_results$CpG, all_results$Method)
+method_names_diag <- names(method_cpg_sets)
+for (i in seq_along(method_names_diag)) {
+  for (j in seq_along(method_names_diag)) {
+    if (j <= i) next
+    m1 <- method_names_diag[i]; m2 <- method_names_diag[j]
+    n_overlap <- length(intersect(method_cpg_sets[[m1]], method_cpg_sets[[m2]]))
+    cat(sprintf("  %-6s vs %-6s: %d shared CpGs (of %d / %d)\n",
+                m1, m2, n_overlap, length(method_cpg_sets[[m1]]), length(method_cpg_sets[[m2]])))
+  }
+}
+cat("\n")
 
 mat_wide <- all_results %>%
   select(CpG, Method, delta_beta) %>%
@@ -366,31 +427,48 @@ if (length(missing_limma) > 0) {
   })
   names(limma_data) <- names(limma_files)
 
+  cat("\n[Diagnostics] Significant (p<0.05) DMCs per method (for UpSet_limma):\n")
+  print(sapply(limma_data, length))
+
   upset_data <- UpSetR::fromList(limma_data)
 
+  cat("\n[Diagnostics] upset_data structure (columns must match intersect = c(...) below):\n")
+  cat("  dim: ", paste(dim(upset_data), collapse = " x "), "\n")
+  cat("  colnames: ", paste(colnames(upset_data), collapse = ", "), "\n\n")
+
+  # UpSetR::fromList() silently DROPS any method with zero elements (zero
+  # significant DMCs at p<0.05) from the resulting columns. Hardcoding all
+  # 5 platform names in intersect=/queries= then crashes with a cryptic
+  # "undefined columns selected" if any platform's column is missing.
+  # Restrict to platforms actually present, and say so explicitly.
+  requested_platforms <- c("ONT", "WGEC", "RRBS", "TWIST", "EPIC")
+  available_platforms <- intersect(requested_platforms, colnames(upset_data))
+  dropped_platforms   <- setdiff(requested_platforms, available_platforms)
+  if (length(dropped_platforms) > 0) {
+    warning(sprintf(
+      "UpSet_limma.png: platform(s) with zero significant (p<0.05) DMCs were dropped from the plot: %s",
+      paste(dropped_platforms, collapse = ", ")
+    ))
+  }
+  if (length(available_platforms) < 2) {
+    warning("UpSet_limma.png: fewer than 2 platforms have any significant DMCs -- skipping this plot entirely.")
+  } else {
+
   stripe_df <- data.frame(
-    set    = names(PLATFORMS),
-    labeli = PLATFORMS[names(PLATFORMS)]
+    set    = names(PLATFORMS)[names(PLATFORMS) %in% available_platforms],
+    labeli = PLATFORMS[names(PLATFORMS) %in% available_platforms]
   )
+
+  set_queries       <- lapply(available_platforms, function(p) upset_query(set = p, fill = METHOD_COLORS[[p]]))
+  intersect_queries <- lapply(available_platforms, function(p) upset_query(intersect = p, color = METHOD_COLORS[[p]], fill = METHOD_COLORS[[p]]))
 
   png(file.path(opt$outdir, "UpSet_limma.png"),
     width = 16, height = 10, units = "in", res = 400)
 
   print(ComplexUpset::upset(
     upset_data,
-    intersect = c("ONT", "WGEC", "RRBS", "TWIST", "EPIC"),
-    queries   = list(
-      upset_query(set = "EPIC",  fill = "#009E73"),
-      upset_query(set = "ONT",   fill = "#D69F00"),
-      upset_query(set = "WGEC",  fill = "purple"),
-      upset_query(set = "RRBS",  fill = "#0072B2"),
-      upset_query(set = "TWIST", fill = "#DC79A7"),
-      upset_query(intersect = "EPIC",  color = "#009E73", fill = "#009E73"),
-      upset_query(intersect = "ONT",   color = "#D69F00", fill = "#D69F00"),
-      upset_query(intersect = "WGEC",  color = "purple",  fill = "purple"),
-      upset_query(intersect = "RRBS",  color = "#0072B2", fill = "#0072B2"),
-      upset_query(intersect = "TWIST", color = "#DC79A7", fill = "#DC79A7")
-    ),
+    intersect = available_platforms,
+    queries   = c(set_queries, intersect_queries),
     set_sizes = upset_set_size(geom = geom_bar(width = 0.8)) +
       ylab("DMCs") +
       scale_y_continuous(
@@ -425,6 +503,7 @@ if (length(missing_limma) > 0) {
 
   dev.off()
   cat("  Saved: UpSet_limma.png\n")
+  }  # end: length(available_platforms) >= 2
 }
 
 # ---- 5.4 UpSet plot – Wilcoxon DMCs (EPIC vs TWIST) ------------------------
