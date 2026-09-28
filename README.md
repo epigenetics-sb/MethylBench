@@ -46,11 +46,12 @@ MethylBench/
 │       ├── 10_density_plots.R 			# Methylation Density Analysis, Figure 5. 
 │       ├── 11_pca.R 				# Principal Component Analysis, Figure 6. 
 │       ├── 12_differential_methylation.R 	# Differential Methylation Analysis, Figure 7. 
-│       ├── 13_annotation.R 			# Visualization for ONT QC reports.   	
-│       ├── 14_DMR_DSS_analysis.R 		# Single CpG differential analysis using DSS, Figure 8.   	
-│       ├── 15_DMR_DMRcate_analysis.R 		# DMR analysis, Figure 9.   		
+│       ├── 13_DMR_DSS_analysis.R 		# Tier1/Tier2 consensus sets, DSS (single CpG, Figure 8), DMRcate (regions, Figure 9), Suppl. Figure 15.
+│       ├── 14_downsampling_sensitivity.R 	# Depth-matching sensitivity analysis on the Tier1 consensus set.
+│       ├── 15_annotation_enrichment_background.R 	# Background-corrected annotation enrichment of DMCs/DMRs.
 │       ├── limma_diff_meth.R 	# Provides functionality to run also the limma approach (Needed for some figures in 12_differential_methylation.R).
-│       └── helpers.R				# Helper functionality.
+│       └── utils/
+│           └── helpers.R			# Helper functionality.
 │
 └── envs/
     ├── environment.yml				# Basic environment, Tools and Python utility
@@ -85,7 +86,7 @@ cd envs/
 conda env create -f environment.yml
 conda env create -f ont.yml
 conda env create -f pacbio.yml
-conda env create -f r-analysis.yml
+conda env create -f r_analysis.yml
 
 cd ..
 ```
@@ -123,9 +124,9 @@ Rscript scripts/R/10_density_plots.R
 Rscript scripts/R/11_pca.R
 Rscript scripts/R/limma_diff_meth.R
 Rscript scripts/R/12_differential_methylation.R
-Rscript scripts/R/13_annotation.R
-Rscript scripts/R/14_DMR_DSS_analysis.R
-Rscript scripts/R/15_DMR_DMRcate_analysis.R
+Rscript scripts/R/13_DMR_DSS_analysis.R
+Rscript scripts/R/14_downsampling_sensitivity.R
+Rscript scripts/R/15_annotation_enrichment_background.R
 ```
 
 ---
@@ -191,14 +192,15 @@ Rscript scripts/R/11_pca.R
 # Figure 7 – Differential methylation analysis using limma & Wilcoxon Test
 Rscript scripts/R/12_differential_methylation.R
 
-# Figure 8 – Differential methylation analysis using DSS (single CpG analysis)
-Rscript scripts/R/14_DMR_DSS_analysis.R
+# Figures 8 and 9 – DSS (single CpG) and DMRcate (regional) analysis on the
+# Tier1/Tier2 consensus sets (both produced by the same script)
+Rscript scripts/R/13_DMR_DSS_analysis.R
 
-# Figure 9 – Differential methylation analysis using DMRcate (regional analysis)
-Rscript scripts/R/15_DMR_DMRcate_analysis.R
+# Depth-matching sensitivity analysis (needs BSseq_Tier1.rds from the step above)
+Rscript scripts/R/14_downsampling_sensitivity.R
 
-# Figure S14 – DMC annotation
-Rscript scripts/R/13_annotation.R
+# Background-corrected annotation enrichment (needs the output directory of the step above)
+Rscript scripts/R/15_annotation_enrichment_background.R
 ```
 
 All scripts expect preprocessed (methylation) matrices as input.
