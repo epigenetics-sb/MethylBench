@@ -460,15 +460,27 @@ dss_test_to_cpgannotated <- function(test_df) {
 
 run_dmrcate <- function(cpg_ann, method_label, lambda = LAMBDA, C = C_PARAM, min_cpgs = MIN_CPGS) {
   cat(sprintf("  [%s] DMRcate...\n", method_label))
-  dmr <- tryCatch(
-    dmrcate(cpg_ann, lambda = lambda, C = C, min.cpgs = min_cpgs),
+  # Both dmrcate() and extractRanges() are wrapped together: dmrcate() can
+  # complete successfully ("Demarcating regions... Done!") while producing
+  # zero valid regions -- e.g. when there are too few significant CpGs to
+  # form any cluster meeting min.cpgs. In that case extractRanges() crashes
+  # with an unhandled "'data' must be of a vector type, was 'NULL'" error
+  # instead of returning an empty result, so it must be caught here too
+  # rather than treating it as a fatal pipeline error.
+  dmr_gr <- tryCatch(
+    {
+      dmr <- dmrcate(cpg_ann, lambda = lambda, C = C, min.cpgs = min_cpgs)
+      extractRanges(dmr, genome = GENOME)
+    },
     error = function(e) {
       cat(sprintf("    [%s] ERROR: %s\n", method_label, conditionMessage(e)))
       NULL
     }
   )
-  if (is.null(dmr)) return(NULL)
-  dmr_gr <- extractRanges(dmr, genome = GENOME)
+  if (is.null(dmr_gr)) {
+    cat(sprintf("    [%s] 0 DMRs\n", method_label))
+    return(GenomicRanges::GRanges())
+  }
   cat(sprintf("    [%s] %d DMRs\n", method_label, length(dmr_gr)))
   dmr_gr
 }
@@ -829,6 +841,19 @@ plot_dmc_upset <- function(dmc_cpg_ids, tier_label, method_col) {
                    RRBS = "ShortRead", EPIC = "Array")
   stripes <- data.frame(set = keys, Assay = assay_type[keys])
 
+  # A hardcoded min_size (e.g. 10) filters out EVERY intersection -- and
+  # crashes ComplexUpset with "No intersections left after filtering" --
+  # once the Tier1/Tier2 consensus set is small enough that no method
+  # combination reaches that size. Cap it to what the data can actually
+  # support instead.
+  combo_key       <- do.call(paste, c(upset_data[keys], sep = "_"))
+  max_combo_size  <- if (length(combo_key) > 0) max(table(combo_key)) else 1L
+  safe_min_size   <- max(1L, min(10L, max_combo_size))
+  if (safe_min_size < 10L) {
+    cat(sprintf("  [%s] min_size reduced from 10 to %d (max achievable intersection size in this dataset)\n",
+                tier_label, safe_min_size))
+  }
+
   p <- ComplexUpset::upset(
     upset_data, intersect = keys,
     queries = lapply(keys, function(k) upset_query(set = k, fill = method_col[[k]])),
@@ -850,7 +875,7 @@ plot_dmc_upset <- function(dmc_cpg_ids, tier_label, method_col) {
       colors = c(LongRead = "#FFE6CC", ShortRead = "#E1D5E7", Array = "#D5E8D4"),
       data = stripes
     ),
-    name = "Method specific overlap", min_size = 10
+    name = "Method specific overlap", min_size = safe_min_size
   ) +
     theme(text = element_text(size = 14), axis.text = element_text(size = 12),
           axis.title = element_text(size = 13), strip.text = element_text(size = 12),

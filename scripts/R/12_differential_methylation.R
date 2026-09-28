@@ -459,8 +459,16 @@ if (length(missing_limma) > 0) {
     labeli = PLATFORMS[names(PLATFORMS) %in% available_platforms]
   )
 
-  set_queries       <- lapply(available_platforms, function(p) upset_query(set = p, fill = METHOD_COLORS[[p]]))
-  intersect_queries <- lapply(available_platforms, function(p) upset_query(intersect = p, color = METHOD_COLORS[[p]], fill = METHOD_COLORS[[p]]))
+  set_queries <- lapply(available_platforms, function(p) upset_query(set = p, fill = METHOD_COLORS[[p]]))
+  # NOTE: per-platform "singleton intersection" highlighting (upset_query
+  # with intersect = <one platform>) was dropped here -- with some data
+  # distributions, a platform's "exclusive/alone" bar can end up with zero
+  # rows after the min_size filter (or not exist at all if every DMC for
+  # that platform always overlaps with at least one other platform), which
+  # crashes ComplexUpset's aesthetics matching ("Aesthetics must be either
+  # length 1 or the same as the data"). Coloring only the left set-size
+  # bars (set_queries) is robust regardless of which intersections are
+  # actually displayed.
 
   png(file.path(opt$outdir, "UpSet_limma.png"),
     width = 16, height = 10, units = "in", res = 400)
@@ -468,7 +476,7 @@ if (length(missing_limma) > 0) {
   print(ComplexUpset::upset(
     upset_data,
     intersect = available_platforms,
-    queries   = c(set_queries, intersect_queries),
+    queries   = set_queries,
     set_sizes = upset_set_size(geom = geom_bar(width = 0.8)) +
       ylab("DMCs") +
       scale_y_continuous(
@@ -518,23 +526,43 @@ df_sig <- all_results %>%
     values_fill = FALSE
   )
 
+# pivot_wider(values_fill = FALSE) only fills gaps for Method values that
+# appear SOMEWHERE in the (FDR < 0.05-filtered) data -- it does NOT create
+# a column for a platform that has zero significant Wilcoxon DMCs. Hardcoding
+# intersect = c("TWIST", "EPIC") then crashes with "undefined columns
+# selected" if either platform's column is absent. Same fix as UpSet_limma.
+requested_platforms_wil <- c("TWIST", "EPIC")
+available_platforms_wil <- intersect(requested_platforms_wil, colnames(df_sig))
+dropped_platforms_wil   <- setdiff(requested_platforms_wil, available_platforms_wil)
+if (length(dropped_platforms_wil) > 0) {
+  warning(sprintf(
+    "UpSet_wilcoxon.png: platform(s) with zero significant (FDR<0.05) Wilcoxon DMCs were dropped from the plot: %s",
+    paste(dropped_platforms_wil, collapse = ", ")
+  ))
+}
+
+if (length(available_platforms_wil) < 2) {
+  warning("UpSet_wilcoxon.png: fewer than 2 platforms have any significant Wilcoxon DMCs -- skipping this plot entirely.")
+} else {
+
+wil_platform_labels <- c(TWIST = "ShortRead", EPIC = "Array")
 stripe_df_wil <- data.frame(
-  set    = c("TWIST", "EPIC"),
-  labeli = c("ShortRead", "Array")
+  set    = available_platforms_wil,
+  labeli = unname(wil_platform_labels[available_platforms_wil])
 )
+wil_colors <- c(TWIST = "#DC79A7", EPIC = "#009E73")
+set_queries_wil <- lapply(available_platforms_wil, function(p) upset_query(set = p, fill = wil_colors[[p]]))
 
 png(file.path(opt$outdir, "UpSet_wilcoxon.png"),
   width = 16, height = 10, units = "in", res = 400)
 
 print(ComplexUpset::upset(
   df_sig,
-  intersect = c("TWIST", "EPIC"),
-  queries   = list(
-    upset_query(set = "EPIC",  fill = "#009E73"),
-    upset_query(set = "TWIST", fill = "#DC79A7"),
-    upset_query(intersect = "EPIC",  color = "#009E73", fill = "#009E73"),
-    upset_query(intersect = "TWIST", color = "#DC79A7", fill = "#DC79A7")
-  ),
+  intersect = available_platforms_wil,
+  queries   = set_queries_wil,
+  # Singleton "intersect =" highlighting queries intentionally omitted --
+  # see the note above the UpSet_limma.png call for why (crash risk if a
+  # platform's exclusive-intersection bar is absent/empty).
   set_sizes = upset_set_size(geom = geom_bar(width = 0.8)) +
     ylab("DMCs") +
     scale_y_continuous(
@@ -569,6 +597,7 @@ print(ComplexUpset::upset(
 
 dev.off()
 cat("  Saved: UpSet_wilcoxon.png\n")
+}  # end: length(available_platforms_wil) >= 2
 
 # ---- 5.5 Cross-platform EPIC vs TWIST delta-beta scatter --------------------
 
