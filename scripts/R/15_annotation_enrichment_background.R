@@ -94,6 +94,7 @@ suppressPackageStartupMessages({
   library(data.table)
   library(dplyr)
   library(tidyr)
+  library(tibble)
   library(stringr)
   library(ggplot2)
   library(annotatr)
@@ -258,7 +259,11 @@ make_prop_plot <- function(sig_freq, bg_freq, title) {
     scale_y_continuous(labels = scales::percent_format(scale = 1)) +
     labs(title = title, x = NULL, y = "Proportion (%)", fill = "Annotation") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 26),
+          plot.title = element_text(hjust = 0.5, size = 26),
+          axis.text = element_text(size = 26),
+          axis.title = element_text(size = 26),
+          text = element_text(size = 26))
 }
 
 make_fe_plot <- function(enrich_df, title) {
@@ -267,7 +272,12 @@ make_fe_plot <- function(enrich_df, title) {
     geom_hline(yintercept = 0, linetype = "dashed") +
     coord_flip() +
     labs(title = title, x = NULL, y = expression(log[2]~"fold enrichment (sig. / background)")) +
-    theme_bw()
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 26),
+          plot.title = element_text(hjust = 0.5, size = 26),
+          axis.text = element_text(size = 26),
+          axis.title = element_text(size = 26),
+          text = element_text(size = 26))
 }
 
 # -------------------------------------------------------------------------
@@ -340,20 +350,19 @@ for (tier in TIERS) {
   p_cpg  <- make_prop_plot(cpg_freq, bg_cpg_freq,
     sprintf("CpG-structural annotation of significant %ss vs. tested background – %s", opt$level, tier))
 
-  ggsave(file.path(opt$outdir, paste0("Fig_annotation_proportion_genecentric_", tier, ".png")),
+  ggsave(file.path(opt$outdir, paste0("Annotation_proportion_genecentric_", tier, ".png")),
          p_gene, width = 10, height = 7, dpi = 300)
-  ggsave(file.path(opt$outdir, paste0("Fig_annotation_proportion_cpgstructural_", tier, ".png")),
+  ggsave(file.path(opt$outdir, paste0("Annotation_proportion_cpgstructural_", tier, ".png")),
          p_cpg, width = 10, height = 7, dpi = 300)
 
-  ggsave(file.path(opt$outdir, paste0("Fig_annotation_enrichment_genecentric_", tier, ".png")),
+  ggsave(file.path(opt$outdir, paste0("Annotation_enrichment_genecentric_", tier, ".png")),
          make_fe_plot(gene_enrich, paste("Gene-centric enrichment vs. tested background –", tier)),
          width = 9, height = 6, dpi = 300)
-  ggsave(file.path(opt$outdir, paste0("Fig_annotation_enrichment_cpgstructural_", tier, ".png")),
+  ggsave(file.path(opt$outdir, paste0("Annotation_enrichment_cpgstructural_", tier, ".png")),
          make_fe_plot(cpg_enrich, paste("CpG-structural enrichment vs. tested background –", tier)),
          width = 8, height = 5, dpi = 300)
 }
 
-cat("\nDone. Key outputs (per tier):\n")
-cat("  - annotation_enrichment_genecentric_<Tier>.tsv / cpgstructural_<Tier>.tsv\n")
-cat("  - Fig_annotation_proportion_genecentric_<Tier>.png / _cpgstructural_<Tier>.png\n")
-cat("  - Fig_annotation_enrichment_genecentric_<Tier>.png / _cpgstructural_<Tier>.png\n")
+cat("\nDone.\n")
+cat("  Downsampling tables : ", normalizePath(opt$datadir), "\n", sep = "")
+cat("  Figures             : ", normalizePath(opt$outdir), "\n", sep = "")

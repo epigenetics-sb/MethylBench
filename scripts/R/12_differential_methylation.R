@@ -117,6 +117,13 @@ PLATFORM_COLORS <- c(
   "LongRead"   = "#FFE6CC"
 )
 
+METHOD_PREFIX <- c(
+  ONT   = "ONT",
+  TWIST = "TWIST",
+  WGEC  = "WGEC",
+  RRBS  = "RRBS"
+)
+
 cat("[1/6] Loading matrices...\n")
 
 all   <- fread(opt$all_path,   header = TRUE, sep = ",", na.strings = "NA")
@@ -263,7 +270,9 @@ cat("[4/6] Generating figures...\n")
 p_db <- ggplot(all_results, aes(x = delta_beta, color = Method)) +
   geom_density(alpha = 0.4, linewidth = 1.5) +
   scale_color_manual(values = col.vec) +
-  labs(title = expression(Delta*beta ~ "distribution per method (Blood - Fibro)")) +
+  labs(title = expression(Delta*beta ~ "distribution per method (Blood - Fibro)"),
+       x     = expression(Delta*beta ~ ""),
+       y     = "Density") +
   theme_bw() +
   theme(
     axis.text  = element_text(size = 22),
@@ -446,12 +455,12 @@ if (length(missing_limma) > 0) {
   dropped_platforms   <- setdiff(requested_platforms, available_platforms)
   if (length(dropped_platforms) > 0) {
     warning(sprintf(
-      "UpSet_limma.png: platform(s) with zero significant (p<0.05) DMCs were dropped from the plot: %s",
+      "upset_limma.png: platform(s) with zero significant (p<0.05) DMCs were dropped from the plot: %s",
       paste(dropped_platforms, collapse = ", ")
     ))
   }
   if (length(available_platforms) < 2) {
-    warning("UpSet_limma.png: fewer than 2 platforms have any significant DMCs -- skipping this plot entirely.")
+    warning("upset_limma.png: fewer than 2 platforms have any significant DMCs -- skipping this plot entirely.")
   } else {
 
   stripe_df <- data.frame(
@@ -470,8 +479,8 @@ if (length(missing_limma) > 0) {
   # bars (set_queries) is robust regardless of which intersections are
   # actually displayed.
 
-  png(file.path(opt$outdir, "UpSet_limma.png"),
-    width = 16, height = 10, units = "in", res = 400)
+  png(file.path(opt$outdir, "upset_limma.png"),
+    width = 14, height = 7, units = "in", res = 400)
 
   print(ComplexUpset::upset(
     upset_data,
@@ -496,7 +505,7 @@ if (length(missing_limma) > 0) {
       colors  = PLATFORM_COLORS,
       data    = stripe_df
     ),
-    name     = "Method specific overlap",
+    name     = "Method specific limma-DMC overlap",
     min_size = 100
   ) +
     guides(color = guide_legend(title = NULL)) +
@@ -510,7 +519,7 @@ if (length(missing_limma) > 0) {
     ))
 
   dev.off()
-  cat("  Saved: UpSet_limma.png\n")
+  cat("  Saved: upset_limma.png\n")
   }  # end: length(available_platforms) >= 2
 }
 
@@ -536,13 +545,13 @@ available_platforms_wil <- intersect(requested_platforms_wil, colnames(df_sig))
 dropped_platforms_wil   <- setdiff(requested_platforms_wil, available_platforms_wil)
 if (length(dropped_platforms_wil) > 0) {
   warning(sprintf(
-    "UpSet_wilcoxon.png: platform(s) with zero significant (FDR<0.05) Wilcoxon DMCs were dropped from the plot: %s",
+    "upset_wilcoxon.png: platform(s) with zero significant (FDR<0.05) Wilcoxon DMCs were dropped from the plot: %s",
     paste(dropped_platforms_wil, collapse = ", ")
   ))
 }
 
 if (length(available_platforms_wil) < 2) {
-  warning("UpSet_wilcoxon.png: fewer than 2 platforms have any significant Wilcoxon DMCs -- skipping this plot entirely.")
+  warning("upset_wilcoxon.png: fewer than 2 platforms have any significant Wilcoxon DMCs -- skipping this plot entirely.")
 } else {
 
 wil_platform_labels <- c(TWIST = "ShortRead", EPIC = "Array")
@@ -553,7 +562,7 @@ stripe_df_wil <- data.frame(
 wil_colors <- c(TWIST = "#DC79A7", EPIC = "#009E73")
 set_queries_wil <- lapply(available_platforms_wil, function(p) upset_query(set = p, fill = wil_colors[[p]]))
 
-png(file.path(opt$outdir, "UpSet_wilcoxon.png"),
+png(file.path(opt$outdir, "upset_wilcoxon.png"),
   width = 16, height = 10, units = "in", res = 400)
 
 print(ComplexUpset::upset(
@@ -582,7 +591,7 @@ print(ComplexUpset::upset(
     colors  = PLATFORM_COLORS,
     data    = stripe_df_wil
   ),
-  name     = "Method specific overlap",
+  name     = "Method specific DMC overlap",
   min_size = 100
 ) +
   guides(color = guide_legend(title = NULL)) +
@@ -596,7 +605,7 @@ print(ComplexUpset::upset(
   ))
 
 dev.off()
-cat("  Saved: UpSet_wilcoxon.png\n")
+cat("  Saved: upset_wilcoxon.png\n")
 }  # end: length(available_platforms_wil) >= 2
 
 # ---- 5.5 Cross-platform EPIC vs TWIST delta-beta scatter --------------------
@@ -645,7 +654,7 @@ p_scatter <- ggplot(
   coord_cartesian(xlim = c(-1, 1), ylim = c(-1, 1)) +
   labs(
     title    = "Cross-platform comparison of methylation changes",
-    subtitle = expression(Delta*beta ~ "concordance between EPIC and TWIST (Blood – Fibro)"),
+    subtitle = expression(Delta*beta ~ "concordance between EPIC and TWIST (Blood vs. Fibro)"),
     x        = expression(Delta*beta ~ "(EPIC)"),
     y        = expression(Delta*beta ~ "(TWIST)"),
     color    = "Concordance"
@@ -657,9 +666,9 @@ p_scatter <- ggplot(
   theme_bw() +
   theme(
     plot.title  = element_text(face = "bold"),
-    axis.text   = element_text(size = 25),
-    axis.title  = element_text(size = 25),
-    text        = element_text(size = 25)
+    axis.text   = element_text(size = 26),
+    axis.title  = element_text(size = 26),
+    text        = element_text(size = 26)
   )
 
 ggsave(p_scatter,
@@ -757,11 +766,12 @@ p_cov <- ggplot(coverage_df, aes(x = Method, y = Coverage, fill = Method)) +
   ) +
   theme_bw() +
   theme(
+    legend.position = "none",
     plot.title  = element_text(hjust = 0.5),
     axis.text   = element_text(size = 26),
     axis.title  = element_text(size = 26),
     text        = element_text(size = 26),
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, colour = METHOD_COLORS[names(METHOD_PREFIX)])
   )
 
 ggsave(p_cov,

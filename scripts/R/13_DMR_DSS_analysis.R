@@ -258,12 +258,12 @@ METHOD_PREFIX <- c(
 
 METHOD_COLORS <- c(
   ONT   = "#E69F00",
-  TWIST = "#009E73",
-  WGEC  = "#5654E9",
+  TWIST = "#CC79A7",
+  WGEC  = "purple",
   RRBS  = "#0072B2"
 )
 
-METHOD_COLORS_EPIC <- c(METHOD_COLORS, EPIC = "#CC79A7")
+METHOD_COLORS_EPIC <- c(METHOD_COLORS, EPIC = "#009E73")
 
 TISSUES <- c("Blood", "Fibro")
 
@@ -736,20 +736,20 @@ plot_dmc_counts <- function(dmc_list, tier_label, method_col) {
     geom_col(width = 0.6) +
     scale_fill_manual(values = c("#d73027", "#4575b4")) +
     scale_y_continuous(labels = scales::comma, expand = expansion(mult = c(0, 0.05))) +
-    labs(title = paste("DMC Counts –", tier_label), x = NULL, y = "#DMCs", fill = NULL) +
+    labs(title = paste("DMC Counts: ", tier_label), x = NULL, y = "#DMCs", fill = NULL) +
     theme_bw() +
     theme(legend.position = "bottom",
-          plot.title = element_text(hjust = 0.5, size = 22),
-          axis.text = element_text(size = 22), axis.title = element_text(size = 22),
-          text = element_text(size = 22),
+          plot.title = element_text(hjust = 0.5, size = 26),
+          axis.text = element_text(size = 26), axis.title = element_text(size = 26),
+          text = element_text(size = 26),
           axis.text.x = element_text(color = method_col[levels(count_df$method)])) +
     guides(fill = guide_legend(nrow = 2))
 }
 
 ggsave(file.path(opt$outdir, "dmc_counts_Tier1.png"),
-       plot_dmc_counts(seq_t1$dmc, "Tier1", METHOD_COLORS), width = 9, height = 7, dpi = 300)
+       plot_dmc_counts(seq_t1$dmc, "Tier1", METHOD_COLORS), width = 14, height = 12, dpi = 300)
 ggsave(file.path(opt$outdir, "dmc_counts_Tier2.png"),
-       plot_dmc_counts(seq_t2$dmc, "Tier2", METHOD_COLORS_EPIC), width = 9, height = 7, dpi = 300)
+       plot_dmc_counts(seq_t2$dmc, "Tier2", METHOD_COLORS_EPIC), width = 14, height = 12, dpi = 300)
 
 # 6b) Exclusivity -----------------------------------------------------------
 
@@ -776,18 +776,18 @@ plot_dmc_exclusivity <- function(dmc_cpg_ids, tier_label, method_col) {
     geom_col(width = 0.6) +
     scale_fill_manual(values = c(Consensus = "#1a9641", Partial = "#fdae61", Exclusive = "#d7191c")) +
     scale_y_continuous(labels = scales::percent, expand = expansion(mult = c(0, 0.02))) +
-    labs(title = paste("DMC Exclusivity –", tier_label), x = NULL, y = "Fraction of DMCs [%]", fill = NULL) +
+    labs(title = paste("DMC Exclusivity: ", tier_label), x = NULL, y = "Fraction of DMCs [%]", fill = NULL) +
     theme_bw() +
-    theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5, size = 22),
-          axis.text = element_text(size = 22), axis.title = element_text(size = 22),
-          text = element_text(size = 22),
+    theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5, size = 26),
+          axis.text = element_text(size = 26), axis.title = element_text(size = 26),
+          text = element_text(size = 26),
           axis.text.x = element_text(color = method_col[levels(excl_df$method)]))
 }
 
 ggsave(file.path(opt$outdir, "dmc_exclusivity_Tier1.png"),
-       plot_dmc_exclusivity(dmc_cpg_ids_t1, "Tier1", METHOD_COLORS), width = 9, height = 7, dpi = 300)
+       plot_dmc_exclusivity(dmc_cpg_ids_t1, "Tier1", METHOD_COLORS), width = 14, height = 12, dpi = 300)
 ggsave(file.path(opt$outdir, "dmc_exclusivity_Tier2.png"),
-       plot_dmc_exclusivity(dmc_cpg_ids_t2, "Tier2", METHOD_COLORS_EPIC), width = 9, height = 7, dpi = 300)
+       plot_dmc_exclusivity(dmc_cpg_ids_t2, "Tier2", METHOD_COLORS_EPIC), width = 14, height = 12, dpi = 300)
 
 # 6c) DMC-level Jaccard heatmap ----------------------------------------------
 
@@ -812,7 +812,7 @@ plot_jaccard_heatmap <- function(jmat, tier_label, method_col, level_label) {
     cluster_rows = FALSE, cluster_columns = FALSE,
     row_names_gp = gpar(fontsize = 12, fontface = "bold", col = label_colors),
     column_names_gp = gpar(fontsize = 12, fontface = "bold", col = label_colors),
-    column_title = paste0("Pairwise ", level_label, " Jaccard Index – ", tier_label),
+    column_title = paste0("Pairwise ", level_label, " Jaccard Index: ", tier_label),
     column_title_gp = gpar(fontsize = 13, fontface = "bold"),
     left_annotation = left_ann, top_annotation = top_ann
   )
@@ -875,13 +875,13 @@ plot_dmc_upset <- function(dmc_cpg_ids, tier_label, method_col) {
       colors = c(LongRead = "#FFE6CC", ShortRead = "#E1D5E7", Array = "#D5E8D4"),
       data = stripes
     ),
-    name = "Method specific overlap", min_size = safe_min_size
+    name = "Method specific DMC overlap", min_size = safe_min_size
   ) +
     theme(text = element_text(size = 14), axis.text = element_text(size = 12),
           axis.title = element_text(size = 13), strip.text = element_text(size = 12),
           legend.text = element_text(size = 12), legend.title = element_text(size = 13)) +
     guides(fill = guide_legend(title = "Method")) +
-    patchwork::plot_annotation(title = paste("Significant DMC overlap –", tier_label))
+    patchwork::plot_annotation(title = paste("Significant DMC overlap: ", tier_label))
 
   ggsave(file.path(opt$outdir, paste0("upset_dmc_", tier_label, ".png")), p, width = 14, height = 7, dpi = 300)
 }
@@ -911,7 +911,7 @@ plot_delta_beta_scatter <- function(dml_list, tier_label, method_col) {
       geom_smooth(method = "lm", se = FALSE, color = "white", linewidth = 0.6) +
       annotate("text", x = -0.8, y = 0.9, label = paste0("r = ", r_val),
                hjust = 0, size = 4.5, fontface = "bold", color = "white") +
-      labs(title = paste(m1, "vs.", m2), x = paste0("Δβ ", m1), y = paste0("Δβ ", m2)) +
+      labs(title = paste(m1, "vs.", m2), x = expression(Delta*beta ~ m1), y = expression(Delta*beta ~ m2)) +
       coord_fixed(xlim = c(-1, 1), ylim = c(-1, 1)) +
       theme_bw() +
       theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
@@ -923,7 +923,7 @@ plot_delta_beta_scatter <- function(dml_list, tier_label, method_col) {
 
   p_combined <- patchwork::wrap_plots(plot_list, ncol = ncols) +
     patchwork::plot_annotation(
-      title = paste("Pairwise Δβ Concordance –", tier_label),
+      title = paste0(expression(Pairwise ~ Delta*beta ~ Concordance), ": ", tier_label),
       subtitle = "All consensus CpGs | red dashed = identity line | r = Pearson",
       theme = theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
                     plot.subtitle = element_text(hjust = 0.5, size = 16))
@@ -957,14 +957,22 @@ plot_coverage_distribution <- function(combined_consensus, method_col, min_cov =
     scale_fill_manual(values = method_col[names(METHOD_PREFIX)]) +
     scale_y_log10(labels = scales::comma) +
     facet_wrap(~ tissue) +
-    labs(title = "Coverage Distribution on Consensus CpG Set (Tier 1)", x = NULL, y = "Coverage (×, log10)") +
+    labs(title = "Coverage Distribution on Consensus CpG Set (Tier 1)", x = NULL, y = "Coverage (log10 scale)") +
     theme_bw() +
-    theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5, size = 22),
-          strip.background = element_rect(fill = "grey90", color = NA),
-          axis.text = element_text(size = 22), axis.title = element_text(size = 22), text = element_text(size = 22),
-          axis.text.x = element_text(size = 20, colour = method_col[names(METHOD_PREFIX)]))
+    theme(
+      legend.position = "none",
+      plot.title  = element_text(hjust = 0.5),
+      axis.text   = element_text(size = 26),
+      axis.title  = element_text(size = 26),
+      text        = element_text(size = 26),
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, colour = method_col[names(METHOD_PREFIX)])
+    )
+    #theme(legend.position = "none",
+    #      strip.background = element_rect(fill = "grey90", color = NA),
+    #      axis.text = element_text(size = 26), axis.title = element_text(size = 26), text = element_text(size = 26),
+    #      axis.text.x = element_text(size = 20, colour = method_col[names(METHOD_PREFIX)]))
 
-  ggsave(file.path(opt$outdir, "coverage_distribution_consensus_Tier1.png"), p, width = 9, height = 7, dpi = 300)
+  ggsave(file.path(opt$outdir, "coverage_distribution_consensus_Tier1.png"), p, width = 14, height = 12, dpi = 300)
 }
 
 plot_coverage_distribution(combined_tier1, METHOD_COLORS)
@@ -1009,18 +1017,18 @@ plot_dmr_counts <- function(dmr_list, tier_label, method_col) {
     geom_col(width = 0.6) +
     scale_fill_manual(values = c("#d73027", "#4575b4")) +
     scale_y_continuous(labels = scales::comma, expand = expansion(mult = c(0, 0.05))) +
-    labs(title = paste("DMR Counts per Method –", tier_label), x = NULL, y = "#DMRs", fill = NULL) +
+    labs(title = paste("DMR Counts per Method: ", tier_label), x = NULL, y = "#DMRs", fill = NULL) +
     theme_bw() +
-    theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5, size = 22),
-          axis.text = element_text(size = 22), axis.title = element_text(size = 22), text = element_text(size = 22),
+    theme(legend.position = "bottom", plot.title = element_text(hjust = 0.5, size = 26),
+          axis.text = element_text(size = 26), axis.title = element_text(size = 26), text = element_text(size = 26),
           axis.text.x = element_text(colour = method_col[levels(count_df$method)])) +
     guides(fill = guide_legend(nrow = 2))
 }
 
 ggsave(file.path(opt$outdir, "dmr_counts_Tier1.png"),
-       plot_dmr_counts(seq_t1$dmr, "Tier1", METHOD_COLORS), width = 9, height = 7, dpi = 300)
+       plot_dmr_counts(seq_t1$dmr, "Tier1", METHOD_COLORS), width = 14, height = 12, dpi = 300)
 ggsave(file.path(opt$outdir, "dmr_counts_Tier2.png"),
-       plot_dmr_counts(seq_t2$dmr, "Tier2", METHOD_COLORS_EPIC), width = 9, height = 7, dpi = 300)
+       plot_dmr_counts(seq_t2$dmr, "Tier2", METHOD_COLORS_EPIC), width = 14, height = 12, dpi = 300)
 
 plot_dmr_width <- function(dmr_list, tier_label, method_col) {
   width_df <- bind_rows(lapply(names(dmr_list), function(m) {
@@ -1035,17 +1043,17 @@ plot_dmr_width <- function(dmr_list, tier_label, method_col) {
     geom_boxplot(width = 0.1, outlier.shape = NA, fill = "white", alpha = 0.8) +
     scale_fill_manual(values = method_col) +
     scale_y_log10(labels = scales::comma) +
-    labs(title = paste("DMR Width Distribution –", tier_label), x = NULL, y = "DMR width (bp, log10)") +
+    labs(title = paste("DMR Width Distribution: ", tier_label), x = NULL, y = "DMR width (bp, log10)") +
     theme_bw() +
-    theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 22),
-          axis.text = element_text(size = 22), axis.title = element_text(size = 22), text = element_text(size = 22),
+    theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 26),
+          axis.text = element_text(size = 26), axis.title = element_text(size = 26), text = element_text(size = 26),
           axis.text.x = element_text(colour = method_col[levels(width_df$method)]))
 }
 
 ggsave(file.path(opt$outdir, "dmr_width_Tier1.png"),
-       plot_dmr_width(seq_t1$dmr, "Tier1", METHOD_COLORS), width = 9, height = 7, dpi = 300)
+       plot_dmr_width(seq_t1$dmr, "Tier1", METHOD_COLORS), width = 14, height = 12, dpi = 300)
 ggsave(file.path(opt$outdir, "dmr_width_Tier2.png"),
-       plot_dmr_width(seq_t2$dmr, "Tier2", METHOD_COLORS_EPIC), width = 9, height = 7, dpi = 300)
+       plot_dmr_width(seq_t2$dmr, "Tier2", METHOD_COLORS_EPIC), width = 14, height = 12, dpi = 300)
 
 jaccard_dmr_t1 <- build_jaccard_mat(seq_t1$dmr, jaccard_dmr)
 jaccard_dmr_t2 <- build_jaccard_mat(seq_t2$dmr, jaccard_dmr)
@@ -1115,14 +1123,14 @@ plot_dmr_cpg_context <- function(dmr_list, tier_label, method_col) {
     scale_fill_manual(values = c("CpG Island" = "#2166ac", "CpG Shore" = "#74add1",
                                   "CpG Shelf" = "#abd9e9", "Open Sea" = "#e0f3f8")) +
     scale_y_continuous(labels = scales::percent, expand = expansion(mult = c(0, 0.02))) +
-    labs(title = paste("Genomic CpG Context of DMRs –", tier_label),
+    labs(title = paste("Genomic CpG Context of DMRs: ", tier_label),
          x = NULL, y = "Fraction of DMRs", fill = "CpG Context") +
     theme_bw() +
-    theme(legend.position = "right", plot.title = element_text(face = "bold", hjust = 0.5, size = 22),
-          axis.text = element_text(size = 22), axis.title = element_text(size = 22), text = element_text(size = 22),
+    theme(legend.position = "right", plot.title = element_text(hjust = 0.5, size = 26),
+          axis.text = element_text(size = 26), axis.title = element_text(size = 26), text = element_text(size = 26),
           axis.text.x = element_text(color = method_col[levels(plot_df$method)]))
 
-  ggsave(file.path(opt$outdir, paste0("dmr_cpg_context_", tier_label, ".png")), p, width = 9, height = 7, dpi = 300)
+  ggsave(file.path(opt$outdir, paste0("dmr_cpg_context_", tier_label, ".png")), p, width = 14, height = 12, dpi = 300)
 }
 
 plot_dmr_cpg_context(seq_t1$dmr, "Tier1", METHOD_COLORS)
@@ -1164,16 +1172,16 @@ plot_roc_vs_reference <- function(dml_list, reference, tier_label, method_col) {
     scale_color_manual(values = method_col[methods_plot], labels = label_map[methods_plot]) +
     scale_x_continuous(labels = scales::percent) +
     scale_y_continuous(labels = scales::percent) +
-    labs(title = paste("DMC Recovery vs.", reference, "–", tier_label),
-         subtitle = paste("Reference:", reference, "| Score = −log10(FDR) × sign(Δβ)"),
-         x = "False Positive Rate (1 − Specificity)", y = "True Positive Rate (Sensitivity)", color = NULL) +
+    labs(title = paste("DMC Recovery vs.", reference, ": ", tier_label),
+         subtitle = paste("Reference:", reference, "| Score = -log10(FDR) x |", expression(Delta*beta),"|"),
+         x = "False Positive Rate (1-Specificity)", y = "True Positive Rate (Sensitivity)", color = NULL) +
     theme_bw() +
-    theme(legend.position = c(0.7, 0.3), plot.title = element_text(face = "bold", hjust = 0.5, size = 22),
+    theme(legend.position = c(0.7, 0.3), plot.title = element_text(face = "bold", hjust = 0.5, size = 26),
           plot.subtitle = element_text(hjust = 0.5, size = 18),
-          axis.text = element_text(size = 22), axis.title = element_text(size = 22), text = element_text(size = 22))
+          axis.text = element_text(size = 26), axis.title = element_text(size = 26), text = element_text(size = 26))
 
   ggsave(file.path(opt$outdir, paste0("roc_vs_", reference, "_", tier_label, ".png")),
-         p, width = 9, height = 7, dpi = 300)
+         p, width = 14, height = 12, dpi = 300)
 }
 
 for (ref in names(METHOD_PREFIX)) {

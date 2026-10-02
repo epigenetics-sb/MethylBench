@@ -99,7 +99,7 @@ dir.create(opt$datadir, recursive = TRUE, showWarnings = FALSE)
 
 set.seed(opt$seed)
 
-METHOD_COLORS <- c(ONT = "#E69F00", TWIST = "#009E73", WGEC = "#5654E9", RRBS = "#0072B2")
+METHOD_COLORS <- c(ONT = "#E69F00", TWIST = "#009E73", WGEC = "purple", RRBS = "#0072B2")
 TISSUES <- c("Blood", "Fibro")
 METHODS <- names(METHOD_COLORS)
 
@@ -197,14 +197,33 @@ run_dss_tissue <- function(bs_blood, bs_fibro, smoothing_span) {
 }
 
 call_dss_dmr <- function(dml_result) {
-  callDMR(
-    dml_result,
-    delta       = opt$delta_cutoff,
-    p.threshold = opt$p_threshold,
-    minlen      = opt$minlen,
-    minCG       = opt$min_cpgs,
-    dis.merge   = opt$dis_merge,
-    pct.sig     = opt$pct_sig
+  # DSS::callDMR() returns a data.frame (chr, start, end, ...), NOT a
+  # GRanges object -- but jaccard_dmr() below operates on GRanges
+  # (GenomicRanges::reduce()/intersect()/width()). Without converting here,
+  # jaccard_dmr() fails with "unable to find an inherited method for
+  # function 'reduce' for signature 'x = \"data.frame\"'". Also guard
+  # against callDMR() erroring out or returning NULL/zero rows, which can
+  # happen on small consensus sets with too few significant CpGs to form
+  # any DMR.
+  dmr_df <- tryCatch(
+    callDMR(
+      dml_result,
+      delta       = opt$delta_cutoff,
+      p.threshold = opt$p_threshold,
+      minlen      = opt$minlen,
+      minCG       = opt$min_cpgs,
+      dis.merge   = opt$dis_merge,
+      pct.sig     = opt$pct_sig
+    ),
+    error = function(e) {
+      cat(sprintf("    callDMR() ERROR: %s\n", conditionMessage(e)))
+      NULL
+    }
+  )
+  if (is.null(dmr_df) || nrow(dmr_df) == 0) return(GenomicRanges::GRanges())
+  GenomicRanges::GRanges(
+    seqnames = dmr_df$chr,
+    ranges   = IRanges::IRanges(start = dmr_df$start, end = dmr_df$end)
   )
 }
 
@@ -334,23 +353,30 @@ p_cor <- ggplot(cor_combined, aes(x = Pair, y = Pearson_r, fill = Condition)) +
   labs(title = "CpG-level delta-beta concordance: before vs. after depth-matching",
        x = NULL, y = expression(paste("Pearson ", italic(r), " (", Delta*beta, ")"))) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 26),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, size = 26),
+        axis.text = element_text(size = 26),
+        axis.title = element_text(size = 26),
+        text = element_text(size = 26))
 
 p_jac <- ggplot(jaccard_combined, aes(x = Pair, y = Jaccard, fill = Condition)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
   labs(title = "DMR-level Jaccard concordance: before vs. after depth-matching",
        x = NULL, y = "Base-pair-weighted Jaccard index") +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom")
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 26),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, size = 26),
+        axis.text = element_text(size = 26),
+        axis.title = element_text(size = 26),
+        text = element_text(size = 26))
 
-ggsave(file.path(opt$outdir, "Fig_S_downsampling_deltabeta_concordance.png"),
-       p_cor, width = 9, height = 6, dpi = 300)
-ggsave(file.path(opt$outdir, "Fig_S_downsampling_dmr_jaccard.png"),
-       p_jac, width = 9, height = 6, dpi = 300)
+ggsave(file.path(opt$outdir, "Downsampling_deltabeta_concordance.png"),
+       p_cor, width = 14, height = 12, dpi = 300)
+ggsave(file.path(opt$outdir, "Downsampling_dmr_jaccard.png"),
+       p_jac, width = 14, height = 12, dpi = 300)
 
-cat("\nDone. Key outputs:\n")
-cat("  - downsampling_target_coverage.tsv\n")
-cat("  - downsampling_deltabeta_correlation.tsv\n")
-cat("  - downsampling_dmr_jaccard.tsv\n")
-cat("  - Fig_S_downsampling_deltabeta_concordance.png\n")
-cat("  - Fig_S_downsampling_dmr_jaccard.png\n")
+cat("\nDone.\n")
+cat("  Downsampling tables : ", normalizePath(opt$datadir), "\n", sep = "")
+cat("  Figures             : ", normalizePath(opt$outdir), "\n", sep = "")
