@@ -313,9 +313,11 @@ cor_after_summary <- cor_after[, .(
 ), by = .(Method1, Method2)]
 cor_after_summary[, Condition := "After depth-matching (mean of replicates)"]
 
+cor_before[, Pearson_r_sd := NA_real_]   # einzelner Lauf -> keine Streuung
+
 cor_combined <- rbindlist(list(
-  cor_before[, .(Method1, Method2, n_CpGs, Pearson_r, Condition)],
-  cor_after_summary[, .(Method1, Method2, n_CpGs, Pearson_r, Condition)]
+  cor_before[, .(Method1, Method2, n_CpGs, Pearson_r, Pearson_r_sd, Condition)],
+  cor_after_summary[, .(Method1, Method2, n_CpGs, Pearson_r, Pearson_r_sd, Condition)]
 ))
 
 fwrite(cor_combined, file.path(opt$datadir, "downsampling_deltabeta_correlation.tsv"), sep = "\t")
@@ -323,6 +325,7 @@ fwrite(cor_combined, file.path(opt$datadir, "downsampling_deltabeta_correlation.
 jaccard_before <- rbindlist(lapply(pairs, function(pr) {
   data.table(Method1 = pr[1], Method2 = pr[2],
              Jaccard = jaccard_dmr(dmr_before[[pr[1]]], dmr_before[[pr[2]]]),
+             Jaccard_sd = NA_real_,
              Condition = "Before depth-matching")
 }))
 
@@ -335,7 +338,8 @@ jaccard_after_list <- lapply(seq_len(opt$n_reps), function(i) {
 })
 jaccard_after <- rbindlist(jaccard_after_list)
 jaccard_after_summary <- jaccard_after[, .(
-  Jaccard = mean(Jaccard, na.rm = TRUE)
+  Jaccard    = mean(Jaccard, na.rm = TRUE),
+  Jaccard_sd = sd(Jaccard, na.rm = TRUE)
 ), by = .(Method1, Method2)]
 jaccard_after_summary[, Condition := "After depth-matching (mean of replicates)"]
 
@@ -348,29 +352,45 @@ fwrite(jaccard_combined, file.path(opt$datadir, "downsampling_dmr_jaccard.tsv"),
 cor_combined[, Pair := paste(Method1, "vs.", Method2)]
 jaccard_combined[, Pair := paste(Method1, "vs.", Method2)]
 
+# Reihenfolge: Before links / zuerst in der Legende, dann After
+COND_LEVELS <- c("Before depth-matching", "After depth-matching (mean of replicates)")
+COND_LABELS <- c("Before depth-matching",
+                 sprintf("After depth-matching (mean \u00b1 SD, n = %d)", opt$n_reps))
+COND_COLORS <- setNames(c("#9DB4C0", "#E76F51"), COND_LEVELS)  # Blaugrau vs. Terrakotta
+
+cor_combined[,     Condition := factor(Condition, levels = COND_LEVELS)]
+jaccard_combined[, Condition := factor(Condition, levels = COND_LEVELS)]
+
+DODGE <- position_dodge(width = 0.7)
+
+plot_theme <- theme_bw() +
+  theme(axis.text.x  = element_text(angle = 45, hjust = 1, size = 26),
+        legend.position = "bottom",
+        legend.direction = "vertical",
+        legend.title = element_blank(),
+        plot.title   = element_text(hjust = 0.5, size = 26),
+        axis.text    = element_text(size = 26),
+        axis.title   = element_text(size = 26),
+        text         = element_text(size = 26),
+        panel.grid.major.x = element_blank())
+
 p_cor <- ggplot(cor_combined, aes(x = Pair, y = Pearson_r, fill = Condition)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
+  geom_col(position = DODGE, width = 0.6, colour = "grey25", linewidth = 0.3) +
+  geom_errorbar(aes(ymin = Pearson_r - Pearson_r_sd, ymax = Pearson_r + Pearson_r_sd),
+                position = DODGE, width = 0.2, linewidth = 0.8, na.rm = TRUE) +
+  scale_fill_manual(values = COND_COLORS, labels = COND_LABELS) +
   labs(title = "CpG-level delta-beta concordance: before vs. after depth-matching",
        x = NULL, y = expression(paste("Pearson ", italic(r), " (", Delta*beta, ")"))) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 26),
-        legend.position = "bottom",
-        plot.title = element_text(hjust = 0.5, size = 26),
-        axis.text = element_text(size = 26),
-        axis.title = element_text(size = 26),
-        text = element_text(size = 26))
+  plot_theme
 
 p_jac <- ggplot(jaccard_combined, aes(x = Pair, y = Jaccard, fill = Condition)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
+  geom_col(position = DODGE, width = 0.6, colour = "grey25", linewidth = 0.3) +
+  geom_errorbar(aes(ymin = Jaccard - Jaccard_sd, ymax = Jaccard + Jaccard_sd),
+                position = DODGE, width = 0.2, linewidth = 0.8, na.rm = TRUE) +
+  scale_fill_manual(values = COND_COLORS, labels = COND_LABELS) +
   labs(title = "DMR-level Jaccard concordance: before vs. after depth-matching",
        x = NULL, y = "Base-pair-weighted Jaccard index") +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 26),
-        legend.position = "bottom",
-        plot.title = element_text(hjust = 0.5, size = 26),
-        axis.text = element_text(size = 26),
-        axis.title = element_text(size = 26),
-        text = element_text(size = 26))
+  plot_theme
 
 ggsave(file.path(opt$outdir, "Downsampling_deltabeta_concordance.png"),
        p_cor, width = 14, height = 12, dpi = 300)

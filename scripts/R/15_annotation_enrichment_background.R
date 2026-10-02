@@ -101,6 +101,8 @@ suppressPackageStartupMessages({
   library(GenomicRanges)
 })
 
+source("scripts/R/utils/helpers.R")
+
 option_list <- list(
   make_option("--dss_dir", type = "character", metavar = "DIR",
               help = "Path to 13_DMR_DSS_analysis.R's --datadir [required]"),
@@ -122,6 +124,7 @@ dir.create(opt$datadir, recursive = TRUE, showWarnings = FALSE)
 GENOME <- opt$genome
 VALID_CHRS <- paste0("chr", c(1:22, "X", "Y"))
 TIERS <- c("Tier1", "Tier2")
+col.vec      <- get_colors()
 
 # -------------------------------------------------------------------------
 # Two independent, mutually-exclusive annotation hierarchies
@@ -154,6 +157,44 @@ clean_label <- function(x, genome) {
   x <- tools::toTitleCase(gsub("_", " ", x))
   x
 }
+
+ANNOT_LABELS <- c(
+  promoters            = "Promoters",
+  `5utrs`              = "5' UTRs",
+  firstexons           = "First exons",
+  cds                  = "CDS",
+  exons                = "Exons",
+  exonintronboundaries = "Exon-intron boundaries",
+  intronexonboundaries = "Intron-exon boundaries",
+  introns              = "Introns",
+  `3utrs`              = "3' UTRs",
+  `1to5kb`             = "1-5 kb upstream",
+  intergenic           = "Intergenic",
+  islands              = "CpG islands",
+  shores               = "CpG shores",
+  shelves              = "CpG shelves",
+  inter                = "Open sea"
+)
+
+ANNOT_COLORS <- c(
+  promoters            = "#B2182B",
+  `5utrs`              = "#F28E2B",
+  firstexons           = "#FFC685",
+  cds                  = "#1F4E89",
+  exons                = "#4E9BD6",
+  exonintronboundaries = "#BFDDF2",
+  intronexonboundaries = "#8C6BB1",
+  introns              = "#D9C8EA",
+  `3utrs`              = "#4C9A5B",
+  `1to5kb`             = "#CFC8BB",
+  intergenic           = "#6B6B6B",
+  islands              = "#8C1C13",
+  shores               = "#E36414",
+  shelves              = "#F2C14E",
+  inter                = "#9BB1C4"
+)
+
+annot_key <- function(x) tolower(sub("^.*_(genes|cpg)_", "", x))
 
 cat("[1/5] Building annotatr databases (gene-centric & CpG-structural)...\n")
 gene_db <- build_annotations(genome = GENOME, annotations = GENE_PRIORITY)
@@ -251,24 +292,41 @@ compute_enrichment <- function(sig_freq, bg_freq, sig_totals, bg_total) {
 }
 
 make_prop_plot <- function(sig_freq, bg_freq, title) {
-  sig_freq2 <- sig_freq %>% mutate(annot_label = clean_label(annot.type, GENOME))
-  bg_freq2  <- bg_freq  %>% mutate(annot_label = clean_label(annot.type, GENOME))
-  combined <- bind_rows(sig_freq2, bg_freq2)
+  combined <- bind_rows(sig_freq, bg_freq) %>% mutate(key = annot_key(annot.type))
+  
+  unknown <- setdiff(unique(combined$key), names(ANNOT_LABELS))
+  if (length(unknown) > 0)
+    stop("No label/colour defined for annotation(s): ", paste(unknown, collapse = ", "))
+  
+  keys <- names(ANNOT_LABELS)[names(ANNOT_LABELS) %in% combined$key]   # keep defined order
+  combined$annot_label <- factor(unname(ANNOT_LABELS[combined$key]),
+                                 levels = unname(ANNOT_LABELS[keys]))
+  fill_values <- setNames(unname(ANNOT_COLORS[keys]), unname(ANNOT_LABELS[keys]))
+  
+  bg_name <- "Background"
+  combined$Set <- factor(combined$Set,
+                         levels = c(bg_name, sort(setdiff(unique(combined$Set), bg_name))))
+  
   ggplot(combined, aes(x = Set, y = pct, fill = annot_label)) +
-    geom_bar(stat = "identity", position = "stack") +
-    scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+    geom_col(position = position_stack(reverse = TRUE), width = 0.85,
+             colour = "white", linewidth = 0.4) +
+    scale_fill_manual(values = fill_values) +
+    guides(fill = guide_legend(reverse = TRUE)) +   # legend top-to-bottom = bar top-to-bottom
+    scale_y_continuous(labels = scales::percent_format(scale = 1), expand = c(0, 0)) +
     labs(title = title, x = NULL, y = "Proportion (%)", fill = "Annotation") +
     theme_bw() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 26),
           plot.title = element_text(hjust = 0.5, size = 26),
           axis.text = element_text(size = 26),
           axis.title = element_text(size = 26),
-          text = element_text(size = 26))
+          text = element_text(size = 26),
+          panel.grid.major.x = element_blank())
 }
 
 make_fe_plot <- function(enrich_df, title) {
   ggplot(enrich_df, aes(x = Category, y = log2FE, fill = Method)) +
     geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
+    scale_fill_manual(values = col.vec) +
     geom_hline(yintercept = 0, linetype = "dashed") +
     coord_flip() +
     labs(title = title, x = NULL, y = expression(log[2]~"fold enrichment (sig. / background)")) +
@@ -293,9 +351,9 @@ for (tier in TIERS) {
   bg_cpg  <- annotate_exclusive(bg_gr, cpg_db,  CPG_PRIORITY)
 
   bg_gene_freq <- bg_gene %>% count(annot.type, name = "n") %>%
-    mutate(pct = n / sum(n) * 100, Set = "Background (tested)")
+    mutate(pct = n / sum(n) * 100, Set = "Background")
   bg_cpg_freq  <- bg_cpg  %>% count(annot.type, name = "n") %>%
-    mutate(pct = n / sum(n) * 100, Set = "Background (tested)")
+    mutate(pct = n / sum(n) * 100, Set = "Background")
 
   cat(sprintf("  [%s] Background CpGs annotated: %d (gene-centric), %d (CpG-structural)\n",
               tier, nrow(bg_gene), nrow(bg_cpg)))
@@ -346,21 +404,21 @@ for (tier in TIERS) {
   cat(sprintf("[5/5] [%s] Generating figures...\n", tier))
 
   p_gene <- make_prop_plot(gene_freq, bg_gene_freq,
-    sprintf("Gene-centric annotation of significant %ss vs. tested background – %s", opt$level, tier))
+    sprintf("Gene-centric annotation of sig. %ss vs. tested background: %s", opt$level, tier))
   p_cpg  <- make_prop_plot(cpg_freq, bg_cpg_freq,
-    sprintf("CpG-structural annotation of significant %ss vs. tested background – %s", opt$level, tier))
+    sprintf("CpG-structural annotation of sig. %ss vs. tested background: %s", opt$level, tier))
 
   ggsave(file.path(opt$outdir, paste0("Annotation_proportion_genecentric_", tier, ".png")),
-         p_gene, width = 10, height = 7, dpi = 300)
+         p_gene, width = 14, height = 12, dpi = 300)
   ggsave(file.path(opt$outdir, paste0("Annotation_proportion_cpgstructural_", tier, ".png")),
-         p_cpg, width = 10, height = 7, dpi = 300)
+         p_cpg, width = 14, height = 12, dpi = 300)
 
   ggsave(file.path(opt$outdir, paste0("Annotation_enrichment_genecentric_", tier, ".png")),
-         make_fe_plot(gene_enrich, paste("Gene-centric enrichment vs. tested background –", tier)),
-         width = 9, height = 6, dpi = 300)
+         make_fe_plot(gene_enrich, paste("Gene-centric enrichment vs. tested background: ", tier)),
+         width = 14, height = 12, dpi = 300)
   ggsave(file.path(opt$outdir, paste0("Annotation_enrichment_cpgstructural_", tier, ".png")),
-         make_fe_plot(cpg_enrich, paste("CpG-structural enrichment vs. tested background –", tier)),
-         width = 8, height = 5, dpi = 300)
+         make_fe_plot(cpg_enrich, paste("CpG-structural enrichment vs. tested background: ", tier)),
+         width = 14, height = 12, dpi = 300)
 }
 
 cat("\nDone.\n")
