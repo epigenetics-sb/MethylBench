@@ -478,7 +478,7 @@ METHOD_COLORS <- c(
   "ONT"    = "#D69F00",
   "PacBio" = "#E55E00",
   "EPIC"   = "#009E73",
-  "TWIST"  = "#DC79A7",
+  "TWIST"  = "#CC79A7", 
   "WGEC"   = "purple",
   "RRBS"   = "#0072B2"
 )
@@ -681,4 +681,19 @@ computeCorrAcrossCoverages <- function(data,
   result$Coverage2 <- factor(result$Coverage2, levels = cov_labels)
 
   return(result)
+}
+
+# Colored singleton ("only X") intersections for ComplexUpset, created only
+# for singletons that are actually displayed (>= min_size), so that no query
+# refers to an absent intersection.
+singleton_queries <- function(df, sets, colors, min_size) {
+  m <- as.matrix(df[, sets, drop = FALSE]) > 0
+  shown <- vapply(sets, function(p) {
+    others <- setdiff(sets, p)
+    sum(m[, p] & rowSums(m[, others, drop = FALSE]) == 0) >= min_size
+  }, logical(1))
+  lapply(sets[shown], function(p)
+    ComplexUpset::upset_query(
+      intersect = p, color = colors[[p]], fill = colors[[p]],
+      only_components = c("intersections_matrix", "Intersection size")))
 }

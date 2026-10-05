@@ -132,12 +132,11 @@ col.vec    <- get_colors()
 BLOOD_IDS  <- paste0("Blood", 1:5)
 FIBRO_IDS  <- paste0("Fibro",  1:5)
 GIAB_IDS   <- paste0("GIAB",   1:2)
-SEQ_METHODS      <- c("ONT", "TWIST", "WGEC", "RRBS")            # sequencing-only, no EPIC, no PacBio (no PacBio data for blood/fibro)
-SEQ_METHODS_GIAB <- c("ONT", "PacBio", "TWIST", "WGEC", "RRBS")  # GIAB has PacBio in addition
+SEQ_METHODS      <- c("ONT", "TWIST", "WGEC", "RRBS")            
+SEQ_METHODS_GIAB <- c("ONT", "PacBio", "TWIST", "WGEC", "RRBS")  
 
 # Column name helpers
 meth_cols <- function(methods, samples) {
-  # Returns methylation column names in method x sample order
   sapply(samples, function(smp) {
     sapply(methods, function(m) paste0(m, "_", smp))
   }) |> as.vector()
@@ -149,16 +148,12 @@ cov_cols <- function(methods, samples) {
   }) |> as.vector()
 }
 
-#' Parse Method and Sample labels directly from a methylation matrix's
-#' own column names (e.g. "ONT_Blood1", "WGEC_Fibro3", "EPIC_Blood2").
-#'
-#' This replaces the previous approach of maintaining a second,
-#' independently-ordered label vector (rep(...,each=...) / rep(...,times=...))
-#' alongside the column-building logic in meth_cols()/cov_cols(). Deriving
-#' the labels from the actual colnames() of the matrix that goes into
-#' prcomp() makes it structurally impossible for labels and columns to
-#' fall out of sync, regardless of what order meth_cols() happens to
-#' produce columns in.
+# Parse Method and Sample labels directly from a methylation matrix's
+# own column names (e.g. "ONT_Blood1", "WGEC_Fibro3", "EPIC_Blood2").
+#
+# Replacement of the previous approach of maintaining a second,
+# independently-ordered label vector (rep(...,each=...) / rep(...,times=...))
+# alongside the column-building logic in meth_cols()/cov_cols().
 parse_meth_labels <- function(col_names) {
   m  <- regmatches(
     col_names,
@@ -177,20 +172,11 @@ parse_meth_labels <- function(col_names) {
 }
 
 runPCA <- function(mat, label = "") {
-  # mat: CpGs (rows) x sample/method columns (colnames like "ONT_Blood1")
   labels <- parse_meth_labels(colnames(mat))
 
-  # Transpose so that samples/methods are the OBSERVATIONS (rows) and CpGs
-  # are the VARIABLES (columns). prcomp() then centers each CpG across
-  # samples (the standard convention for sample-level PCA), and pca$x
-  # (scores) has exactly one row per input column, in the original column
-  # order -- so `labels` is guaranteed to line up with it.
-  # scale. = FALSE: beta-values already live on a common [0,1] scale;
-  # scaling to unit variance would inflate the influence of low-variance
-  # (e.g. near-0 or near-1) CpGs relative to biologically variable ones.
   pca      <- prcomp(t(mat), center = TRUE, scale. = FALSE)
   pca_mat  <- as.data.frame(pca$x)
-  var_expl <- summary(pca)$importance[2, ] * 100  # proportion of variance
+  var_expl <- summary(pca)$importance[2, ] * 100
 
   cat(sprintf("\n--- PCA: %s ---\n", label))
   print(summary(pca))

@@ -147,6 +147,9 @@ cat("[1/4] Loading ALL matrix...\n")
 all <- fread(opt$all_path, header = TRUE, sep = ",", na.strings = "NA")
 cat(sprintf("  %d CpGs x %d columns\n", nrow(all), ncol(all)))
 
+all <- all[platformsCoveredMask(all, c("EPIC", "ONT", "WGEC", "TWIST", "RRBS"))]
+cat(sprintf("  %d CpGs after restricting to the common 5-platform set\n", nrow(all)))
+
 get_method_cols <- function(prefix, blood_ids, fibro_ids, all_cols) {
   blood <- intersect(paste0(prefix, "_", blood_ids), all_cols)
   fibro <- intersect(paste0(prefix, "_", fibro_ids), all_cols)
@@ -253,7 +256,7 @@ for (method_label in names(method_defs)) {
   top$Method     <- method_label
   top$Significant <- (!is.na(top$adj.P.Val) &
                        top$adj.P.Val < FDR_CUTOFF &
-                       abs(top$delta_beta) > DELTA_CUTOFF)
+                       abs(top$delta_beta) >= DELTA_CUTOFF)
 
   n_sig <- sum(top$Significant, na.rm = TRUE)
   cat(sprintf("    Significant DMCs (FDR < %.2f, |Δβ| > %.2f): %d\n",

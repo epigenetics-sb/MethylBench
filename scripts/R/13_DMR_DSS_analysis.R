@@ -441,7 +441,8 @@ run_dss_tissue_paired <- function(bs_blood, bs_fibro) {
     )
   )
 
-  fit  <- DMLfit.multiFactor(bs_combined, design = design, formula = ~ subject + group)
+  fit <- DMLfit.multiFactor(bs_combined, design = design, formula = ~ subject + group,
+                            smoothing = TRUE, smoothing.span = 500)
   test <- DMLtest.multiFactor(fit, coef = "groupBlood")
 
   delta_beta <- compute_delta_beta_bsseq(bs_combined, blood_samples, fibro_samples)
@@ -638,7 +639,7 @@ run_tier <- function(bsseq_list, tier_label) {
     dml_list[[method]] <- test_df
 
     dmc <- test_df[!is.na(test_df$fdrs) & test_df$fdrs < FDR_CUTOFF &
-                     abs(test_df$delta_beta) > DELTA_CUTOFF, , drop = FALSE]
+                     abs(test_df$delta_beta) >= DELTA_CUTOFF, , drop = FALSE]
     dmc_list[[method]] <- data.frame(
       chr = dmc$chr, pos = dmc$pos, diff = dmc$delta_beta, fdr = dmc$fdrs
     )

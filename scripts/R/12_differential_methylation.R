@@ -249,7 +249,7 @@ for (method in names(methods)) {
     delta_beta  = delta_beta,
     pvalue      = pvals,
     FDR         = fdr,
-    Significant = (!is.na(fdr) & fdr < 0.05 & abs(delta_beta) > DELTA_CUTOFF),
+    Significant = (!is.na(fdr) & fdr < 0.05 & abs(delta_beta) >= DELTA_CUTOFF),
     Method      = method,
     stringsAsFactors = FALSE
   )
@@ -432,7 +432,7 @@ if (length(missing_limma) > 0) {
 } else {
   limma_data <- lapply(names(limma_files), function(m) {
     dt <- fread(limma_files[[m]], header = FALSE, sep = ",")
-    dt[dt$V6 < 0.05, ]$V1
+    dt[dt$V6 < 0.05 & abs(dt$V8) >= 0.1, ]$V1
   })
   names(limma_data) <- names(limma_files)
 
@@ -468,7 +468,9 @@ if (length(missing_limma) > 0) {
     labeli = PLATFORMS[names(PLATFORMS) %in% available_platforms]
   )
 
-  set_queries <- lapply(available_platforms, function(p) upset_query(set = p, fill = METHOD_COLORS[[p]]))
+  set_queries <- c(
+    lapply(available_platforms, function(p) upset_query(set = p, fill = METHOD_COLORS[[p]])),
+    singleton_queries(upset_data, available_platforms, METHOD_COLORS, 100))
   # NOTE: per-platform "singleton intersection" highlighting (upset_query
   # with intersect = <one platform>) was dropped here -- with some data
   # distributions, a platform's "exclusive/alone" bar can end up with zero
@@ -524,89 +526,73 @@ if (length(missing_limma) > 0) {
 }
 
 # ---- 5.4 UpSet plot – Wilcoxon DMCs (EPIC vs TWIST) ------------------------
+UPSET_MIN_SIZE <- 100
+
+cat("\n[Diagnostics] Wilcoxon DMCs per method (FDR < 0.05, |delta beta| >= cutoff):\n")
+print(table(factor(all_results$Method[all_results$Significant],
+                   levels = names(methods))))
 
 df_sig <- all_results %>%
-  filter(FDR < 0.05) %>%
-  mutate(Significant = TRUE) %>%
+  filter(Significant) %>%
   select(CpG, Significant, Method) %>%
-  pivot_wider(
-    names_from  = Method,
-    values_from = Significant,
-    values_fill = FALSE
-  )
+  pivot_wider(names_from = Method, values_from = Significant, values_fill = FALSE)
 
-# pivot_wider(values_fill = FALSE) only fills gaps for Method values that
-# appear SOMEWHERE in the (FDR < 0.05-filtered) data -- it does NOT create
-# a column for a platform that has zero significant Wilcoxon DMCs. Hardcoding
-# intersect = c("TWIST", "EPIC") then crashes with "undefined columns
-# selected" if either platform's column is absent. Same fix as UpSet_limma.
 requested_platforms_wil <- c("TWIST", "EPIC")
 available_platforms_wil <- intersect(requested_platforms_wil, colnames(df_sig))
 dropped_platforms_wil   <- setdiff(requested_platforms_wil, available_platforms_wil)
 if (length(dropped_platforms_wil) > 0) {
   warning(sprintf(
-    "upset_wilcoxon.png: platform(s) with zero significant (FDR<0.05) Wilcoxon DMCs were dropped from the plot: %s",
-    paste(dropped_platforms_wil, collapse = ", ")
-  ))
+    "upset_wilcoxon.png: platform(s) without significant Wilcoxon DMCs dropped: %s",
+    paste(dropped_platforms_wil, collapse = ", ")))
 }
 
 if (length(available_platforms_wil) < 2) {
-  warning("upset_wilcoxon.png: fewer than 2 platforms have any significant Wilcoxon DMCs -- skipping this plot entirely.")
+  warning("upset_wilcoxon.png: fewer than 2 platforms with significant DMCs -- skipped.")
 } else {
-
-wil_platform_labels <- c(TWIST = "ShortRead", EPIC = "Array")
-stripe_df_wil <- data.frame(
-  set    = available_platforms_wil,
-  labeli = unname(wil_platform_labels[available_platforms_wil])
-)
-wil_colors <- c(TWIST = "#DC79A7", EPIC = "#009E73")
-set_queries_wil <- lapply(available_platforms_wil, function(p) upset_query(set = p, fill = wil_colors[[p]]))
-
-png(file.path(opt$outdir, "upset_wilcoxon.png"),
-  width = 16, height = 10, units = "in", res = 400)
-
-print(ComplexUpset::upset(
-  df_sig,
-  intersect = available_platforms_wil,
-  queries   = set_queries_wil,
-  # Singleton "intersect =" highlighting queries intentionally omitted --
-  # see the note above the UpSet_limma.png call for why (crash risk if a
-  # platform's exclusive-intersection bar is absent/empty).
-  set_sizes = upset_set_size(geom = geom_bar(width = 0.8)) +
-    ylab("DMCs") +
-    scale_y_continuous(
-      labels = scales::label_number(scale_cut = scales::cut_short_scale())
-    ) +
-    theme(text = element_text(size = 25)),
-  base_annotations = list(
-    "Intersection size" = intersection_size(width = 0.8, counts = FALSE) +
-      theme(
-        plot.background = element_rect(fill = "lightgray"),
-        text = element_text(size = 25)
-      ) +
-      ylab("Overlapping DMCs")
-  ),
-  stripes  = upset_stripes(
-    mapping = aes(color = labeli),
-    colors  = PLATFORM_COLORS,
-    data    = stripe_df_wil
-  ),
-  name     = "Method specific DMC overlap",
-  min_size = 100
-) +
-  guides(color = guide_legend(title = NULL)) +
-  theme(
-    text         = element_text(size = 25),
-    axis.text    = element_text(size = 18),
-    axis.title   = element_text(size = 20),
-    strip.text   = element_text(size = 18),
-    legend.text  = element_text(size = 18),
-    legend.title = element_text(size = 20)
-  ))
-
-dev.off()
-cat("  Saved: upset_wilcoxon.png\n")
-}  # end: length(available_platforms_wil) >= 2
+  
+  # Keep only CpGs that are DMCs in at least one DISPLAYED platform. 
+  df_sig <- df_sig[rowSums(as.matrix(df_sig[, available_platforms_wil])) > 0, ]
+  
+  stripe_df_wil <- data.frame(
+    set    = available_platforms_wil,
+    labeli = unname(PLATFORMS[available_platforms_wil])
+  )
+  queries_wil <- c(
+    lapply(available_platforms_wil, function(p)
+      upset_query(set = p, fill = METHOD_COLORS[[p]])),
+    singleton_queries(df_sig, available_platforms_wil, METHOD_COLORS, UPSET_MIN_SIZE)
+  )
+  
+  png(file.path(opt$outdir, "upset_wilcoxon.png"),
+      width = 16, height = 10, units = "in", res = 400)
+  
+  print(ComplexUpset::upset(
+    df_sig,
+    intersect = available_platforms_wil,
+    queries   = queries_wil,
+    set_sizes = upset_set_size(geom = geom_bar(width = 0.8)) +
+      ylab("DMCs") +
+      scale_y_continuous(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
+      theme(text = element_text(size = 25)),
+    base_annotations = list(
+      "Intersection size" = intersection_size(width = 0.8, counts = FALSE) +
+        theme(plot.background = element_rect(fill = "lightgray", colour = "black"),
+              text = element_text(size = 25)) +
+        ylab("Overlapping DMCs")
+    ),
+    stripes  = upset_stripes(mapping = aes(color = labeli),
+                             colors = PLATFORM_COLORS, data = stripe_df_wil),
+    name     = "Method specific overlap",
+    min_size = UPSET_MIN_SIZE
+  ) +
+    guides(color = guide_legend(title = NULL)) +
+    theme(text = element_text(size = 25), axis.text = element_text(size = 18),
+          axis.title = element_text(size = 20), strip.text = element_text(size = 18),
+          legend.text = element_text(size = 18), legend.title = element_text(size = 20)))
+  
+  dev.off()
+  cat("  Saved: upset_wilcoxon.png\n")
+}
 
 # ---- 5.5 Cross-platform EPIC vs TWIST delta-beta scatter --------------------
 
