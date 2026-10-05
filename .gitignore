@@ -1,10 +1,2 @@
 *.bam\n*.fastq\n*.fastq.gz\n*.idat\ndata/\nresults/
 scripts/R/.Rhistory
-fix_dmc_upset_min_size.patch
-fix_dmc_upset_min_size_v2.patch
-fix_dmrcate_extractRanges_crash.patch
-fix_upset_aesthetics_crash.patch
-fix_upset_wilcoxon_missing_column.patch
-readme_current_scripts.patch
-fix_call_dss_dmr_granges.patch
-fix_missing_tibble_library.patch

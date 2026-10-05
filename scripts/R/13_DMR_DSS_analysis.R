@@ -112,8 +112,14 @@
 #   17_annotation_enrichment_background.R -> 15.
 #
 # Input:
-#   --all_path      Path to the combined methylation matrix
-#                   (EPIC + sequencing methods).
+#   --seq_path      Path to the sequencing-only matrix (ALL_without_EPIC.csv).
+#                   Used for the Tier 1 consensus, which must NOT be restricted
+#                   to EPIC probe positions.
+#   --all_path      Path to the matrix with sequencing methods AND EPIC
+#                   (ALL.csv). Used for the Tier 2 consensus and the EPIC
+#                   analysis. If --seq_path is omitted, this file is used for
+#                   both tiers (legacy behaviour; Tier 1 is then effectively
+#                   restricted to EPIC positions and a warning is printed).
 #
 #   Column naming convention:
 #     EPIC_Blood1..n, EPIC_Fibro1..n
@@ -135,7 +141,8 @@
 #
 # Usage:
 #   Rscript scripts/R/13_DMR_DSS_analysis.R \
-#     --all_path    data/matrices/ALL_with_EPIC.csv \
+#     --seq_path    data/matrices/ALL_without_EPIC.csv \
+#     --all_path    data/matrices/ALL.csv \
 #     --outdir      results/figures/ \
 #     --datadir     results/dmr_dss/
 #
@@ -165,9 +172,15 @@ suppressPackageStartupMessages({
 source("scripts/R/utils/helpers.R")
 
 option_list <- list(
+  make_option("--seq_path",
+    type = "character",
+    default = NULL,
+    help = "Path to sequencing-only matrix (ALL_without_EPIC.csv), used for Tier 1 [recommended]",
+    metavar = "FILE"
+  ),
   make_option("--all_path",
     type = "character",
-    help = "Path to combined methylation matrix [required]",
+    help = "Path to matrix with sequencing methods + EPIC (ALL.csv), used for Tier 2 [required]",
     metavar = "FILE"
   ),
   make_option("--outdir",
@@ -236,6 +249,13 @@ opt <- parse_args(OptionParser(option_list = option_list))
 
 if (is.null(opt$all_path)) stop("ERROR: --all_path is required")
 if (!file.exists(opt$all_path)) stop(paste("File not found:", opt$all_path))
+if (!is.null(opt$seq_path) && !file.exists(opt$seq_path)) stop(paste("File not found:", opt$seq_path))
+if (is.null(opt$seq_path)) {
+  warning("--seq_path not given: Tier 1 is built from --all_path and is therefore ",
+          "restricted to CpGs present in that matrix (EPIC positions if it is ALL.csv).")
+}
+SEPARATE_TIER1_INPUT <- !is.null(opt$seq_path) &&
+  normalizePath(opt$seq_path) != normalizePath(opt$all_path)
 
 dir.create(opt$outdir,  recursive = TRUE, showWarnings = FALSE)
 dir.create(opt$datadir, recursive = TRUE, showWarnings = FALSE)
@@ -267,33 +287,35 @@ METHOD_COLORS_EPIC <- c(METHOD_COLORS, EPIC = "#009E73")
 
 TISSUES <- c("Blood", "Fibro")
 
-cat("[1/8] Loading methylation matrix...\n")
-combined_df <- fread(
-  opt$all_path,
-  header = TRUE,
-  sep = ",",
-  na.strings = "NA"
-)
+cat("[1/8] Loading methylation matrices...\n")
 
-# --- WGBS -> WGEC compatibility shim ----------------------------------------
-# Guards against an input matrix that still uses the legacy "WGBS_*"
-# column naming from before the repository-wide WGEC rename.
-wgbs_cols <- grep("^WGBS(_cov)?_(Blood|Fibro)[0-9]+$", colnames(combined_df), value = TRUE)
-if (length(wgbs_cols) > 0) {
-  cat(sprintf("Renaming %d legacy WGBS_* column(s) to WGEC_*...\n", length(wgbs_cols)))
-  setnames(combined_df, wgbs_cols, sub("^WGBS", "WGEC", wgbs_cols))
+load_matrix <- function(path, label) {
+  cat(sprintf("  Reading %s matrix: %s\n", label, path))
+  df <- fread(path, header = TRUE, sep = ",", na.strings = "NA")
+
+  # --- WGBS -> WGEC compatibility shim --------------------------------------
+  # Guards against an input matrix that still uses the legacy "WGBS_*"
+  # column naming from before the repository-wide WGEC rename.
+  wgbs_cols <- grep("^WGBS(_cov)?_(Blood|Fibro)[0-9]+$", colnames(df), value = TRUE)
+  if (length(wgbs_cols) > 0) {
+    cat(sprintf("  Renaming %d legacy WGBS_* column(s) to WGEC_*...\n", length(wgbs_cols)))
+    setnames(df, wgbs_cols, sub("^WGBS", "WGEC", wgbs_cols))
+  }
+
+  missing_coord_cols <- setdiff(c("chr", "start"), colnames(df))
+  if (length(missing_coord_cols) > 0) {
+    stop("[", label, "] Required coordinate columns not found: ",
+         paste(missing_coord_cols, collapse = ", "))
+  }
+
+  df[, cpg_id := paste0(chr, ":", start)]
+  cat(sprintf("  %s matrix: %d CpGs\n", label, nrow(df)))
+  df
 }
 
-required_coord_cols <- c("chr", "start")
-missing_coord_cols <- setdiff(required_coord_cols, colnames(combined_df))
-if (length(missing_coord_cols) > 0) {
-  stop(
-    "Required coordinate columns not found: ",
-    paste(missing_coord_cols, collapse = ", ")
-  )
-}
-
-combined_df[, cpg_id := paste0(chr, ":", start)]
+# Tier 1 input: sequencing-only matrix (falls back to --all_path, see above)
+seq_df <- load_matrix(if (SEPARATE_TIER1_INPUT) opt$seq_path else opt$all_path,
+                      if (SEPARATE_TIER1_INPUT) "Sequencing-only (Tier 1)" else "Combined (Tier 1 + 2)")
 
 # -------------------------------------------------------------------------
 # Helper functions
@@ -521,29 +543,48 @@ cat("[2/8] Determining consensus CpG sets...\n")
 passing_cpgs <- list()
 
 for (method in names(METHOD_PREFIX)) {
-  blood_pass <- get_passing_cpgs_seq(combined_df, method, "Blood")
-  fibro_pass <- get_passing_cpgs_seq(combined_df, method, "Fibro")
+  blood_pass <- get_passing_cpgs_seq(seq_df, method, "Blood")
+  fibro_pass <- get_passing_cpgs_seq(seq_df, method, "Fibro")
   both_pass  <- intersect(blood_pass, fibro_pass)
   cat(sprintf("  [%s] Blood: %d | Fibro: %d | Blood ∩ Fibro: %d\n",
               method, length(blood_pass), length(fibro_pass), length(both_pass)))
   passing_cpgs[[method]] <- both_pass
 }
 
-epic_blood_pass <- get_passing_cpgs_epic(combined_df, "Blood")
-epic_fibro_pass <- get_passing_cpgs_epic(combined_df, "Fibro")
+consensus_tier1 <- Reduce(intersect, passing_cpgs[names(METHOD_PREFIX)])
+combined_tier1  <- seq_df[seq_df$cpg_id %in% consensus_tier1]
+
+# Tier 2 input: matrix with EPIC (ALL.csv). Free the (large) sequencing-only
+# matrix first if it is a separate file.
+if (SEPARATE_TIER1_INPUT) {
+  rm(seq_df); invisible(gc())
+  epic_df <- load_matrix(opt$all_path, "Sequencing + EPIC (Tier 2)")
+} else {
+  epic_df <- seq_df
+  rm(seq_df)
+}
+
+epic_blood_pass <- get_passing_cpgs_epic(epic_df, "Blood")
+epic_fibro_pass <- get_passing_cpgs_epic(epic_df, "Fibro")
 epic_both_pass  <- intersect(epic_blood_pass, epic_fibro_pass)
 cat(sprintf("  [EPIC] Blood: %d | Fibro: %d | Blood ∩ Fibro: %d\n",
             length(epic_blood_pass), length(epic_fibro_pass), length(epic_both_pass)))
 passing_cpgs[["EPIC"]] <- epic_both_pass
 
-consensus_tier1 <- Reduce(intersect, passing_cpgs[names(METHOD_PREFIX)])
+# Tier 2 = Tier 1 consensus restricted to CpGs that also pass on EPIC
 consensus_tier2 <- intersect(consensus_tier1, passing_cpgs[["EPIC"]])
+combined_tier2  <- epic_df[epic_df$cpg_id %in% consensus_tier2]
+rm(epic_df); invisible(gc())
 
 cat(sprintf("  Tier 1 consensus: %d CpGs\n", length(consensus_tier1)))
-cat(sprintf("  Tier 2 consensus: %d CpGs\n", length(consensus_tier2)))
+cat(sprintf("  Tier 2 consensus: %d CpGs (%.1f%% of Tier 1)\n",
+            length(consensus_tier2), 100 * length(consensus_tier2) / length(consensus_tier1)))
 
-combined_tier1 <- combined_df[combined_df$cpg_id %in% consensus_tier1]
-combined_tier2 <- combined_df[combined_df$cpg_id %in% consensus_tier2]
+if (length(consensus_tier2) > 0.9 * length(consensus_tier1)) {
+  warning("Tier 2 contains more than 90% of the Tier 1 CpGs. Tier 1 is probably ",
+          "restricted to EPIC positions -- check that --seq_path points to the ",
+          "sequencing-only matrix (ALL_without_EPIC.csv).")
+}
 
 stopifnot(
   nrow(combined_tier1) == length(consensus_tier1),

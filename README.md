@@ -193,8 +193,11 @@ Rscript scripts/R/11_pca.R
 Rscript scripts/R/12_differential_methylation.R
 
 # Figures 8 and 9 – DSS (single CpG) and DMRcate (regional) analysis on the
-# Tier1/Tier2 consensus sets (both produced by the same script)
-Rscript scripts/R/13_DMR_DSS_analysis.R
+# Tier1/Tier2 consensus sets (both produced by the same script).
+# Tier 1 is built from the sequencing-only matrix, Tier 2 from the matrix with EPIC.
+Rscript scripts/R/13_DMR_DSS_analysis.R \
+  --seq_path data/matrices/ALL_without_EPIC.csv \
+  --all_path data/matrices/ALL.csv
 
 # Depth-matching sensitivity analysis (needs BSseq_Tier1.rds from the step above)
 Rscript scripts/R/14_downsampling_sensitivity.R

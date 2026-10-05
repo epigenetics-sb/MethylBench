@@ -277,7 +277,7 @@ compute_enrichment <- function(sig_freq, bg_freq, sig_totals, bg_total) {
       log2fe  <- log2((pct_sig + 1e-6) / (pct_bg + 1e-6))
 
       out[[length(out) + 1]] <- data.table(
-        Method = m, Category = clean_label(cat_i, GENOME),
+        Method = m, Key = annot_key(cat_i), Category = clean_label(cat_i, GENOME),
         pct_sig = pct_sig, pct_background = pct_bg, log2FE = log2fe,
         odds_ratio = if (!is.null(ft)) unname(ft$estimate) else NA_real_,
         ci_low  = if (!is.null(ft)) ft$conf.int[1] else NA_real_,
@@ -312,11 +312,13 @@ make_prop_plot <- function(sig_freq, bg_freq, title) {
              colour = "white", linewidth = 0.4) +
     scale_fill_manual(values = fill_values) +
     guides(fill = guide_legend(reverse = TRUE)) +   # legend top-to-bottom = bar top-to-bottom
-    scale_y_continuous(labels = scales::percent_format(scale = 1), expand = c(0, 0)) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1),
+                       expand = expansion(mult = c(0, 0.03))) +
     labs(title = title, x = NULL, y = "Proportion (%)", fill = "Annotation") +
     theme_bw() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 26),
           plot.title = element_text(hjust = 0.5, size = 26),
+          plot.title.position = "plot",
           axis.text = element_text(size = 26),
           axis.title = element_text(size = 26),
           text = element_text(size = 26),
@@ -324,18 +326,33 @@ make_prop_plot <- function(sig_freq, bg_freq, title) {
 }
 
 make_fe_plot <- function(enrich_df, title) {
+  enrich_df <- as.data.frame(enrich_df)
+
+  unknown <- setdiff(unique(enrich_df$Key), names(ANNOT_LABELS))
+  if (length(unknown) > 0)
+    stop("No label defined for annotation(s): ", paste(unknown, collapse = ", "))
+
+  # Same labels as the proportion plots; biological order from top to bottom
+  # (coord_flip draws the first factor level at the bottom, hence rev()).
+  keys <- names(ANNOT_LABELS)[names(ANNOT_LABELS) %in% enrich_df$Key]
+  enrich_df$Category <- factor(unname(ANNOT_LABELS[enrich_df$Key]),
+                               levels = rev(unname(ANNOT_LABELS[keys])))
+
   ggplot(enrich_df, aes(x = Category, y = log2FE, fill = Method)) +
-    geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6) +
+    geom_col(position = position_dodge(width = 0.8), width = 0.75) +
     scale_fill_manual(values = col.vec) +
+    guides(fill = guide_legend(reverse = TRUE)) +   # legend order = bar order (top to bottom)
     geom_hline(yintercept = 0, linetype = "dashed") +
     coord_flip() +
     labs(title = title, x = NULL, y = expression(log[2]~"fold enrichment (sig. / background)")) +
     theme_bw() +
     theme(axis.text.x = element_text(size = 26),
           plot.title = element_text(hjust = 0.5, size = 26),
+          plot.title.position = "plot",
           axis.text = element_text(size = 26),
           axis.title = element_text(size = 26),
-          text = element_text(size = 26))
+          text = element_text(size = 26),
+          panel.grid.major.y = element_blank())
 }
 
 # -------------------------------------------------------------------------
@@ -414,10 +431,10 @@ for (tier in TIERS) {
          p_cpg, width = 14, height = 12, dpi = 300)
 
   ggsave(file.path(opt$outdir, paste0("Annotation_enrichment_genecentric_", tier, ".png")),
-         make_fe_plot(gene_enrich, paste("Gene-centric enrichment vs. tested background: ", tier)),
+         make_fe_plot(gene_enrich, paste0("Gene-centric enrichment vs. tested background: ", tier)),
          width = 14, height = 12, dpi = 300)
   ggsave(file.path(opt$outdir, paste0("Annotation_enrichment_cpgstructural_", tier, ".png")),
-         make_fe_plot(cpg_enrich, paste("CpG-structural enrichment vs. tested background: ", tier)),
+         make_fe_plot(cpg_enrich, paste0("CpG-structural enrichment vs. tested background: ", tier)),
          width = 14, height = 12, dpi = 300)
 }
 
