@@ -686,7 +686,8 @@ computeCorrAcrossCoverages <- function(data,
 # Colored singleton ("only X") intersections for ComplexUpset, created only
 # for singletons that are actually displayed (>= min_size), so that no query
 # refers to an absent intersection.
-singleton_queries <- function(df, sets, colors, min_size) {
+singleton_queries <- function(df, sets, colors, min_size,
+                              annotation = "Intersection size") {
   m <- as.matrix(df[, sets, drop = FALSE]) > 0
   shown <- vapply(sets, function(p) {
     others <- setdiff(sets, p)
@@ -695,5 +696,5 @@ singleton_queries <- function(df, sets, colors, min_size) {
   lapply(sets[shown], function(p)
     ComplexUpset::upset_query(
       intersect = p, color = colors[[p]], fill = colors[[p]],
-      only_components = c("intersections_matrix", "Intersection size")))
+      only_components = c("intersections_matrix", annotation)))
 }

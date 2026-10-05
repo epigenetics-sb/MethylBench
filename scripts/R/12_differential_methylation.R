@@ -702,7 +702,7 @@ p_var <- ggplot(
   geom_boxplot() +
   scale_fill_manual(values = col.vec) +
   facet_wrap(~SampleSet) +
-  labs(title = "Variance of Blood/Fibro DMC-set across Methods") +
+  labs(title = "Variance of Blood/Fibro CpG-set across Methods") +
   theme_bw() +
   theme(
     plot.title  = element_text(hjust = 0.5),
@@ -747,7 +747,7 @@ p_cov <- ggplot(coverage_df, aes(x = Method, y = Coverage, fill = Method)) +
   scale_y_log10() +
   facet_wrap(~SampleSet) +
   labs(
-    title = "Coverage of Blood/Fibro DMC-set across Methods",
+    title = "Coverage of Blood/Fibro CpG-set across Methods",
     y     = "Coverage (log10 scale)"
   ) +
   theme_bw() +
@@ -757,7 +757,7 @@ p_cov <- ggplot(coverage_df, aes(x = Method, y = Coverage, fill = Method)) +
     axis.text   = element_text(size = 26),
     axis.title  = element_text(size = 26),
     text        = element_text(size = 26),
-    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, colour = METHOD_COLORS[names(METHOD_PREFIX)])
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
   )
 
 ggsave(p_cov,
