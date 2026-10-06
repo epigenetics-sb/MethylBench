@@ -537,7 +537,7 @@ df_sig <- all_results %>%
   select(CpG, Significant, Method) %>%
   pivot_wider(names_from = Method, values_from = Significant, values_fill = FALSE)
 
-requested_platforms_wil <- c("TWIST", "EPIC")
+requested_platforms_wil <- c("ONT", "TWIST", "WGEC", "RRBS", "EPIC")
 available_platforms_wil <- intersect(requested_platforms_wil, colnames(df_sig))
 dropped_platforms_wil   <- setdiff(requested_platforms_wil, available_platforms_wil)
 if (length(dropped_platforms_wil) > 0) {

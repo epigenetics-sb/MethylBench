@@ -18,8 +18,11 @@
 #     - Figure 8 (CpG-level concordance): pairwise Delta-beta scatter, UpSet,
 #       exclusivity, hyper/hypo barplot, Jaccard heatmap, coverage
 #       distribution on the consensus set.
-#     - Figure 9 (region-level concordance): DMR counts, width, pairwise
-#       Jaccard, CpG-structural context of DMRs.
+#     - Figure 9A/B/D (region-level concordance): DMR counts, width, pairwise
+#       Jaccard. Figure 9C (CpG-structural context vs. tested background) is
+#       produced by 15_annotation_enrichment_background.R --level DMR.
+#     - Supplementary Table S2: run with --unpaired (design ~ group) into a
+#       separate --datadir; only tables are written.
 #     - Supplementary Figure 15: threshold-free rank-recovery (ROC/AUC of
 #       each sequencing platform's continuous DMC score against every other
 #       platform's called DMCs as reference).
@@ -79,9 +82,8 @@
 #   4) REMOVED the CpG-/genic-feature annotation composition that the donor
 #      script also computed (background-free, partial duplicate of
 #      15_annotation_enrichment_background.R); 15 is the single,
-#      background-corrected source for that analysis. ADDED a CpG-
-#      structural-only context annotation of the called DMRs (Figure 9C),
-#      which was not implemented anywhere else in the repository.
+#      background-corrected source for that analysis, including Figure 9C
+#      (--level DMR).
 #   5) REMOVED a broken Tier-2 "Sequencing_withEPIC" Delta-beta scatter
 #      call from the donor script (its DML list never carried an "EPIC"
 #      entry, so it silently plotted only the four sequencing methods
@@ -158,7 +160,6 @@ suppressPackageStartupMessages({
   library(GenomicRanges)
   library(DMRcate)
   library(limma)
-  library(annotatr)
   library(ggplot2)
   library(dplyr)
   library(tidyr)
@@ -238,10 +239,15 @@ option_list <- list(
     metavar = "INT"
   ),
   make_option("--genome",
-    type    = "character",
-    default = "hg38",
-    help    = "Genome build [default: hg38]",
-    metavar = "STRING"
+              type    = "character",
+              default = "hg38",
+              help    = "Genome build [default: hg38]",
+              metavar = "STRING"
+  ),
+  make_option("--unpaired",
+              action  = "store_true",
+              default = FALSE,
+              help    = "Sensitivity run: omit the subject term (design ~ group). Only DML/DMC/DMR tables are written; figures are skipped."
   )
 )
 
@@ -435,7 +441,8 @@ run_dss_tissue_paired <- function(bs_blood, bs_fibro) {
     )
   )
 
-  fit <- DMLfit.multiFactor(bs_combined, design = design, formula = ~ subject + group,
+  model_formula <- if (opt$unpaired) ~ group else ~ subject + group
+  fit <- DMLfit.multiFactor(bs_combined, design = design, formula = model_formula,
                             smoothing = TRUE, smoothing.span = 500)
   test <- DMLtest.multiFactor(fit, coef = "groupBlood")
 
@@ -619,15 +626,16 @@ cat("[4/8] Running paired DML testing and DMRcate per sequencing method...\n")
 
 run_tier <- function(bsseq_list, tier_label) {
 
-  dml_list <- list()  # full paired test, all consensus CpGs
-  dmc_list <- list()  # significant subset (chr/pos/diff/fdr)
-  dmr_list <- list()  # DMRcate regions
+  dml_list <- list()  
+  dmc_list <- list()  
+  dmr_list <- list()
 
   for (method in names(METHOD_PREFIX)) {
     key_blood <- paste0(method, "_Blood")
     key_fibro <- paste0(method, "_Fibro")
 
-    cat(sprintf("  [%s | %s] DMLtest.multiFactor (paired: ~subject+group)...\n", tier_label, method))
+    cat(sprintf("  [%s | %s] DMLtest.multiFactor (%s)...\n", tier_label, method,
+                if (opt$unpaired) "unpaired: ~group" else "paired: ~subject+group"))
 
     test_df <- run_dss_tissue_paired(bsseq_list[[key_blood]], bsseq_list[[key_fibro]])
     dml_list[[method]] <- test_df
@@ -693,7 +701,7 @@ epic_group   <- factor(
   c(rep("Blood", length(epic_blood_cols)), rep("Fibro", length(epic_fibro_cols))),
   levels = c("Fibro", "Blood")
 )
-epic_design <- model.matrix(~ epic_subject + epic_group)
+epic_design <- if (opt$unpaired) model.matrix(~ epic_group) else model.matrix(~ epic_subject + epic_group)
 epic_fit    <- eBayes(lmFit(epic_m, epic_design))
 
 epic_delta_beta <- rowMeans(epic_beta[, epic_blood_cols, drop = FALSE]) -
@@ -740,6 +748,13 @@ seq_t2$dml[["EPIC"]] <- epic_test
 seq_t2$dmc[["EPIC"]] <- data.frame(chr = epic_dmc$chr, pos = epic_dmc$pos,
                                     diff = epic_dmc$delta_beta, fdr = epic_dmc$adj.P.Val)
 seq_t2$dmr[["EPIC"]] <- epic_dmr
+
+if (opt$unpaired) {
+  writeLines(capture.output(sessionInfo()), file.path(opt$datadir, "sessionInfo.txt"))
+  cat("\n--unpaired: DML/DMC/DMR tables written to ", normalizePath(opt$datadir),
+      "; figures skipped.\n", sep = "")
+  quit(save = "no", status = 0)
+}
 
 # -------------------------------------------------------------------------
 # 6. Figure 8 -- CpG-level (DMC) concordance
@@ -1103,80 +1118,6 @@ write_jaccard(jaccard_dmr_t1, file.path(opt$datadir, "DMRcate_DMR_Jaccard_Tier1.
 write_jaccard(jaccard_dmr_t2, file.path(opt$datadir, "DMRcate_DMR_Jaccard_Tier2.tsv"))
 plot_jaccard_heatmap(jaccard_dmr_t1, "Tier1", METHOD_COLORS, "DMR")
 plot_jaccard_heatmap(jaccard_dmr_t2, "Tier2", METHOD_COLORS_EPIC, "DMR")
-
-# Figure 9C: CpG-structural context of the called DMRs. This panel did not
-# exist anywhere in the repository before this consolidation. It uses a
-# single, CpG-structural-only hierarchy (Island > Shore > Shelf > Open Sea)
-# -- deliberately NOT combined with gene-centric categories in one shared
-# priority list, which is exactly the artifact behind Reviewer 1's Major
-# Comment 3 on the now-retired, exploratory-stage 13_annotation.R (that
-# script's number has been reassigned to this one; its own single-hierarchy,
-# no-background analysis has been fully superseded by
-# 15_annotation_enrichment_background.R and removed). No background
-# comparison is made here either (the manuscript text for Fig. 9C only
-# describes composition, not an enrichment test); for a background-
-# corrected enrichment analysis at the DMR level, see
-# 15_annotation_enrichment_background.R with --level DMR.
-CPG_PRIORITY <- c(
-  paste0(GENOME, "_cpg_islands"), paste0(GENOME, "_cpg_shores"),
-  paste0(GENOME, "_cpg_shelves"), paste0(GENOME, "_cpg_inter")
-)
-cpg_db <- build_annotations(genome = GENOME, annotations = CPG_PRIORITY)
-
-annotate_dmr_cpg_context <- function(dmr_list) {
-  bind_rows(lapply(names(dmr_list), function(m) {
-    dmr <- dmr_list[[m]]
-    if (is.null(dmr) || length(dmr) == 0) return(NULL)
-    ann <- annotate_regions(regions = dmr, annotations = cpg_db, ignore.strand = TRUE, quiet = TRUE)
-    df <- as.data.frame(ann)
-    df$priority <- match(df$annot.type, CPG_PRIORITY)
-    df |>
-      dplyr::group_by(seqnames, start, end) |>
-      dplyr::slice_min(priority, n = 1, with_ties = FALSE) |>
-      dplyr::ungroup() |>
-      dplyr::mutate(method = m,
-                    context = dplyr::case_when(
-                      grepl("islands", annot.type) ~ "CpG Island",
-                      grepl("shores",  annot.type) ~ "CpG Shore",
-                      grepl("shelves", annot.type) ~ "CpG Shelf",
-                      grepl("inter",   annot.type) ~ "Open Sea",
-                      TRUE ~ "Other"
-                    ))
-  }))
-}
-
-plot_dmr_cpg_context <- function(dmr_list, tier_label, method_col) {
-  ctx_df <- annotate_dmr_cpg_context(dmr_list)
-  if (is.null(ctx_df) || nrow(ctx_df) == 0) return(invisible(NULL))
-
-  plot_df <- ctx_df |>
-    dplyr::filter(method %in% names(method_col)) |>
-    dplyr::count(method, context) |>
-    dplyr::group_by(method) |>
-    dplyr::mutate(frac = n / sum(n)) |>
-    dplyr::ungroup() |>
-    dplyr::mutate(
-      context = factor(context, levels = c("CpG Island", "CpG Shore", "CpG Shelf", "Open Sea")),
-      method  = factor(method, levels = names(method_col))
-    )
-
-  p <- ggplot(plot_df, aes(x = method, y = frac, fill = context)) +
-    geom_col(width = 0.7) +
-    scale_fill_manual(values = c("CpG Island" = "#2166ac", "CpG Shore" = "#74add1",
-                                  "CpG Shelf" = "#abd9e9", "Open Sea" = "#e0f3f8")) +
-    scale_y_continuous(labels = scales::percent, expand = expansion(mult = c(0, 0.02))) +
-    labs(title = paste("Genomic CpG Context of DMRs:", tier_label),
-         x = NULL, y = "Fraction of DMRs", fill = "CpG Context") +
-    theme_bw() +
-    theme(legend.position = "right", plot.title = element_text(hjust = 0.5, size = 26),
-          axis.text = element_text(size = 26), axis.title = element_text(size = 26), text = element_text(size = 26),
-          axis.text.x = element_text(color = method_col[levels(plot_df$method)]))
-
-  ggsave(file.path(opt$outdir, paste0("dmr_cpg_context_", tier_label, ".png")), p, width = 14, height = 12, dpi = 300)
-}
-
-plot_dmr_cpg_context(seq_t1$dmr, "Tier1", METHOD_COLORS)
-plot_dmr_cpg_context(seq_t2$dmr, "Tier2", METHOD_COLORS_EPIC)
 
 # -------------------------------------------------------------------------
 # 8. Supplementary Figure 15 -- threshold-free rank-recovery (ROC/AUC)

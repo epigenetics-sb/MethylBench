@@ -125,6 +125,7 @@ GENOME <- opt$genome
 VALID_CHRS <- paste0("chr", c(1:22, "X", "Y"))
 TIERS <- c("Tier1", "Tier2")
 col.vec      <- get_colors()
+METHOD_ORDER <- c("ONT", "TWIST", "WGEC", "RRBS", "EPIC")
 
 # -------------------------------------------------------------------------
 # Two independent, mutually-exclusive annotation hierarchies
@@ -133,12 +134,12 @@ GENE_PRIORITY <- c(
   paste0(GENOME, "_genes_promoters"),
   paste0(GENOME, "_genes_5UTRs"),
   paste0(GENOME, "_genes_cds"),
+  paste0(GENOME, "_genes_3UTRs"),
   paste0(GENOME, "_genes_firstexons"),
   paste0(GENOME, "_genes_exons"),
   paste0(GENOME, "_genes_exonintronboundaries"),
   paste0(GENOME, "_genes_intronexonboundaries"),
   paste0(GENOME, "_genes_introns"),
-  paste0(GENOME, "_genes_3UTRs"),
   paste0(GENOME, "_genes_1to5kb"),
   paste0(GENOME, "_genes_intergenic")
 )
@@ -265,9 +266,14 @@ compute_enrichment <- function(sig_freq, bg_freq, sig_totals, bg_total) {
       n_bg_cat  <- bg_freq$n[bg_freq$annot.type == cat_i]
       n_bg_cat  <- if (length(n_bg_cat) == 0) 0 else n_bg_cat
 
+      # Significant sites are a subset of the tested background, so compare
+      # sig vs. not-sig tested CpGs (otherwise counted twice).
+      n_nonsig_cat   <- n_bg_cat - n_sig_cat
+      n_nonsig_total <- bg_total - n_sig_total
+      stopifnot(n_nonsig_cat >= 0, n_nonsig_total >= 0)
       tab <- matrix(c(
-        n_sig_cat, n_sig_total - n_sig_cat,
-        n_bg_cat,  bg_total - n_bg_cat
+        n_sig_cat,    n_sig_total    - n_sig_cat,
+        n_nonsig_cat, n_nonsig_total - n_nonsig_cat
       ), nrow = 2)
 
       ft <- tryCatch(fisher.test(tab), error = function(e) NULL)
@@ -304,8 +310,8 @@ make_prop_plot <- function(sig_freq, bg_freq, title) {
   fill_values <- setNames(unname(ANNOT_COLORS[keys]), unname(ANNOT_LABELS[keys]))
   
   bg_name <- "Background"
-  combined$Set <- factor(combined$Set,
-                         levels = c(bg_name, sort(setdiff(unique(combined$Set), bg_name))))
+  present <- intersect(METHOD_ORDER, unique(combined$Set))
+  combined$Set <- factor(combined$Set, levels = c(bg_name, present))
   
   ggplot(combined, aes(x = Set, y = pct, fill = annot_label)) +
     geom_col(position = position_stack(reverse = TRUE), width = 0.85,
@@ -316,7 +322,7 @@ make_prop_plot <- function(sig_freq, bg_freq, title) {
                        expand = expansion(mult = c(0, 0.03))) +
     labs(title = title, x = NULL, y = "Proportion (%)", fill = "Annotation") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 26),
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 26, colour = c("black", unname(col.vec[present]))),
           plot.title = element_text(hjust = 0.5, size = 26),
           plot.title.position = "plot",
           axis.text = element_text(size = 26),
@@ -327,6 +333,8 @@ make_prop_plot <- function(sig_freq, bg_freq, title) {
 
 make_fe_plot <- function(enrich_df, title) {
   enrich_df <- as.data.frame(enrich_df)
+  enrich_df$Method <- factor(enrich_df$Method,
+                             levels = intersect(METHOD_ORDER, unique(enrich_df$Method)))
 
   unknown <- setdiff(unique(enrich_df$Key), names(ANNOT_LABELS))
   if (length(unknown) > 0)
@@ -389,6 +397,10 @@ for (tier in TIERS) {
   for (method in names(method_files)) {
     gr <- read_sig_as_gr(method_files[[method]], opt$level)
     if (length(gr) == 0) next
+    # DMR level: count the TESTED CpGs located within the DMRs, so that the
+    # significant set and the background are measured in the same CpG.
+    if (opt$level == "DMR") gr <- subsetByOverlaps(bg_gr, gr, ignore.strand = TRUE)
+    if (length(gr) == 0) next
 
     gene_ann <- annotate_exclusive(gr, gene_db, GENE_PRIORITY)
     cpg_ann  <- annotate_exclusive(gr, cpg_db,  CPG_PRIORITY)
@@ -415,29 +427,32 @@ for (tier in TIERS) {
   gene_enrich <- compute_enrichment(gene_freq, bg_gene_freq, gene_totals, sum(bg_gene_freq$n))
   cpg_enrich  <- compute_enrichment(cpg_freq,  bg_cpg_freq,  cpg_totals,  sum(bg_cpg_freq$n))
 
-  fwrite(gene_enrich, file.path(opt$datadir, paste0("annotation_enrichment_genecentric_", tier, ".tsv")), sep = "\t")
-  fwrite(cpg_enrich,  file.path(opt$datadir, paste0("annotation_enrichment_cpgstructural_", tier, ".tsv")), sep = "\t")
-
+  lv <- opt$level 
+  fwrite(gene_enrich, file.path(opt$datadir, sprintf("annotation_enrichment_genecentric_%s_%s.tsv",   lv, tier)), sep = "\t")
+  fwrite(cpg_enrich,  file.path(opt$datadir, sprintf("annotation_enrichment_cpgstructural_%s_%s.tsv", lv, tier)), sep = "\t")
+  
   cat(sprintf("[5/5] [%s] Generating figures...\n", tier))
-
+  
+  sig_label <- if (lv == "CpG") "sig. CpGs" else "CpGs in DMRs"
+  
   p_gene <- make_prop_plot(gene_freq, bg_gene_freq,
-    sprintf("Gene-centric annotation of sig. %ss vs. tested background: %s", opt$level, tier))
+                           sprintf("Gene-centric annotation of %s vs. tested background: %s", sig_label, tier))
   p_cpg  <- make_prop_plot(cpg_freq, bg_cpg_freq,
-    sprintf("CpG-structural annotation of sig. %ss vs. tested background: %s", opt$level, tier))
-
-  ggsave(file.path(opt$outdir, paste0("Annotation_proportion_genecentric_", tier, ".png")),
+                           sprintf("CpG-structural annotation of %s vs. tested background: %s", sig_label, tier))
+  
+  ggsave(file.path(opt$outdir, sprintf("Annotation_proportion_genecentric_%s_%s.png",   lv, tier)),
          p_gene, width = 14, height = 12, dpi = 300)
-  ggsave(file.path(opt$outdir, paste0("Annotation_proportion_cpgstructural_", tier, ".png")),
+  ggsave(file.path(opt$outdir, sprintf("Annotation_proportion_cpgstructural_%s_%s.png", lv, tier)),
          p_cpg, width = 14, height = 12, dpi = 300)
-
-  ggsave(file.path(opt$outdir, paste0("Annotation_enrichment_genecentric_", tier, ".png")),
-         make_fe_plot(gene_enrich, paste0("Gene-centric enrichment vs. tested background: ", tier)),
+  
+  ggsave(file.path(opt$outdir, sprintf("Annotation_enrichment_genecentric_%s_%s.png", lv, tier)),
+         make_fe_plot(gene_enrich, sprintf("Gene-centric enrichment (%s) vs. tested background: %s", sig_label, tier)),
          width = 14, height = 12, dpi = 300)
-  ggsave(file.path(opt$outdir, paste0("Annotation_enrichment_cpgstructural_", tier, ".png")),
-         make_fe_plot(cpg_enrich, paste0("CpG-structural enrichment vs. tested background: ", tier)),
+  ggsave(file.path(opt$outdir, sprintf("Annotation_enrichment_cpgstructural_%s_%s.png", lv, tier)),
+         make_fe_plot(cpg_enrich, sprintf("CpG-structural enrichment (%s) vs. tested background: %s", sig_label, tier)),
          width = 14, height = 12, dpi = 300)
 }
 
 cat("\nDone.\n")
-cat("  Downsampling tables : ", normalizePath(opt$datadir), "\n", sep = "")
+cat("  Enrichment tables : ", normalizePath(opt$datadir), "\n", sep = "")
 cat("  Figures             : ", normalizePath(opt$outdir), "\n", sep = "")

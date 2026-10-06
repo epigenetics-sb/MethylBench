@@ -44,12 +44,14 @@ MethylBench/
 │       ├── 08_qc_visualization.R 		# QC Visualization, Figure 3. 
 │       ├── 09_correlation_analysis.R 		# Correlation Analysis, Figure 4. 
 │       ├── 10_density_plots.R 			# Methylation Density Analysis, Figure 5. 
-│       ├── 11_pca.R 				# Principal Component Analysis, Figure 6. 
-│       ├── 12_differential_methylation.R 	# Differential Methylation Analysis, Figure 7. 
-│       ├── 13_DMR_DSS_analysis.R 		# Tier1/Tier2 consensus sets, DSS (single CpG, Figure 8), DMRcate (regions, Figure 9), Suppl. Figure 15.
-│       ├── 14_downsampling_sensitivity.R 	# Depth-matching sensitivity analysis on the Tier1 consensus set.
-│       ├── 15_annotation_enrichment_background.R 	# Background-corrected annotation enrichment of DMCs/DMRs.
-│       ├── limma_diff_meth.R 	# Provides functionality to run also the limma approach (Needed for some figures in 12_differential_methylation.R).
+│       ├── 11_pca.R 				# Principal Component Analysis (sample scores), Figure 6, Suppl. Figure 1.
+│       ├── limma_diff_meth.R 			# Exploratory paired limma per platform (input for 12, Suppl. Figure 7).
+│       ├── 12_differential_methylation.R 	# Exploratory limma & Wilcoxon analysis, Figure 7, Suppl. Figures 6-8.
+│       ├── 13_DMR_DSS_analysis.R 		# Tier1/Tier2 consensus sets, paired DSS / EPIC limma (M-values), DMRcate;
+│       │					# Figure 8, Figure 9A/B/D, Suppl. Figures 12-15, Suppl. Table S2 (--unpaired).
+│       ├── 14_downsampling_sensitivity.R 	# Depth-matching sensitivity analysis on Tier1, Suppl. Figure 16, Suppl. Table S5.
+│       ├── 15_annotation_enrichment_background.R 	# Background-corrected annotation enrichment (two hierarchies);
+│       │					# Figure 9C, Suppl. Figures 9 and 17, Suppl. Tables S3/S4.
 │       └── utils/
 │           └── helpers.R			# Helper functionality.
 │
@@ -122,11 +124,13 @@ Rscript scripts/R/08_qc_visualization.R
 Rscript scripts/R/09_correlation_analysis.R
 Rscript scripts/R/10_density_plots.R
 Rscript scripts/R/11_pca.R
-Rscript scripts/R/limma_diff_meth.R
+Rscript scripts/R/limma_diff_meth.R          # must run before 12
 Rscript scripts/R/12_differential_methylation.R
-Rscript scripts/R/13_DMR_DSS_analysis.R
+Rscript scripts/R/13_DMR_DSS_analysis.R      # paired run (default)
+Rscript scripts/R/13_DMR_DSS_analysis.R --unpaired   # sensitivity run, separate --datadir
 Rscript scripts/R/14_downsampling_sensitivity.R
-Rscript scripts/R/15_annotation_enrichment_background.R
+Rscript scripts/R/15_annotation_enrichment_background.R --level CpG
+Rscript scripts/R/15_annotation_enrichment_background.R --level DMR
 ```
 
 ---
@@ -174,7 +178,7 @@ Per-sample × per-method QC metrics. This table was assembled manually by extrac
 
 ## Reproduce Individual Figures
 
-Each R script in `scripts/R/` corresponds directly to a figure in the manuscript:
+Each R script in `scripts/R/` corresponds directly to figures and tables in the manuscript. Run `Rscript <script> --help` for all options.
 
 ```bash
 # Figure 3 – QC metrics and coverage
@@ -186,27 +190,62 @@ Rscript scripts/R/09_correlation_analysis.R
 # Figure 5 – Methylation density distributions
 Rscript scripts/R/10_density_plots.R
 
-# Figure 6 – Principal component analysis
+# Figure 6 and Suppl. Figure 1 – PCA of sample–platform profiles (scores, not loadings)
 Rscript scripts/R/11_pca.R
 
-# Figure 7 – Differential methylation analysis using limma & Wilcoxon Test
-Rscript scripts/R/12_differential_methylation.R
+# Figure 7, Suppl. Figures 6–8 – exploratory analysis on the common five-platform CpG set
+# (paired limma on beta-values, design ~ subject + group; unpaired Wilcoxon rank-sum test).
+# limma_diff_meth.R must be run first; its output directory is passed via --limma_dir.
+Rscript scripts/R/limma_diff_meth.R --all_path data/matrices/ALL.csv --outdir results/limma/
+Rscript scripts/R/12_differential_methylation.R --all_path data/matrices/ALL.csv \
+  --limma_dir results/limma/ --outdir results/figures/ --datadir results/diff_meth/
 
-# Figures 8 and 9 – DSS (single CpG) and DMRcate (regional) analysis on the
-# Tier1/Tier2 consensus sets (both produced by the same script).
-# Tier 1 is built from the sequencing-only matrix, Tier 2 from the matrix with EPIC.
+# Figure 8, Figure 9A/B/D, Suppl. Figures 12–15 – primary analysis on the Tier1/Tier2
+# consensus sets: paired Beta-Binomial model (DSS::DMLfit.multiFactor, ~ subject + group)
+# for the sequencing platforms, paired limma on M-values for EPIC (Tier2), DMRcate on the
+# paired per-CpG statistics. Tier 1 is built from the sequencing-only matrix,
+# Tier 2 from the matrix with EPIC.
 Rscript scripts/R/13_DMR_DSS_analysis.R \
   --seq_path data/matrices/ALL_without_EPIC.csv \
-  --all_path data/matrices/ALL.csv
+  --all_path data/matrices/ALL.csv \
+  --outdir   results/figures/ \
+  --datadir  results/dmr_dss/
 
-# Depth-matching sensitivity analysis (needs BSseq_Tier1.rds from the step above)
-Rscript scripts/R/14_downsampling_sensitivity.R
+# Suppl. Table S2 – sensitivity run without the subject term (design ~ group);
+# writes tables only, figures are skipped. Use a separate --datadir.
+Rscript scripts/R/13_DMR_DSS_analysis.R \
+  --seq_path data/matrices/ALL_without_EPIC.csv \
+  --all_path data/matrices/ALL.csv \
+  --unpaired \
+  --outdir   results/figures_unpaired/ \
+  --datadir  results/dmr_dss_unpaired/
 
-# Background-corrected annotation enrichment (needs the output directory of the step above)
-Rscript scripts/R/15_annotation_enrichment_background.R
+# Suppl. Figure 16, Suppl. Table S5 – depth-matching sensitivity analysis
+# (needs BSseq_Tier1.rds from the paired run above)
+Rscript scripts/R/14_downsampling_sensitivity.R \
+  --bsseq_tier1 results/dmr_dss/BSseq_Tier1.rds
+
+# Figure 9C, Suppl. Figures 9 and 17, Suppl. Tables S3/S4 – annotation enrichment relative to
+# the tested background, with separate gene-centric and CpG-structural hierarchies.
+# --level CpG: significant DMCs; --level DMR: tested CpGs located within DMRs.
+Rscript scripts/R/15_annotation_enrichment_background.R --dss_dir results/dmr_dss/ \
+  --outdir results/figures/ --datadir results/annotation/ --level CpG
+Rscript scripts/R/15_annotation_enrichment_background.R --dss_dir results/dmr_dss/ \
+  --outdir results/figures/ --datadir results/annotation/ --level DMR
 ```
 
 All scripts expect preprocessed (methylation) matrices as input.
+
+---
+
+## Changes in the revised version
+
+- **PCA (`11_pca.R`):** PCA is computed on sample–platform profiles (observations) × CpGs (variables) and sample scores are plotted; Method/Sample labels are parsed from the column names of the analysed matrix.
+- **Paired design:** all differential methylation models include the subject term (`~ subject + group`): limma (`limma_diff_meth.R`), DSS via `DMLfit.multiFactor`/`DMLtest.multiFactor` and EPIC limma on M-values (`13_DMR_DSS_analysis.R`). DMRs are called with DMRcate from these paired statistics. `--unpaired` reproduces the analysis without the subject term.
+- **Tier 1** is built from the sequencing-only matrix (`--seq_path`) and is no longer restricted to EPIC positions.
+- **Annotation (`15_annotation_enrichment_background.R`):** significant sites are compared with the tested consensus background, using two independent hierarchies (gene-centric, CpG-structural) and Fisher's exact test (significant vs. non-significant tested CpGs). Replaces the former `13_annotation.R`.
+- **Rank recovery (Suppl. Figure 15):** direction-aware score, `-log10(FDR) × directional agreement` with the reference platform.
+- Scripts were renumbered; the former `14_DMR_DSS_analysis.R`, `16_downsampling_sensitivity.R` and `17_annotation_enrichment_background.R` are now 13, 14 and 15.
 
 ---
 
