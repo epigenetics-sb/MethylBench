@@ -1,0 +1,66 @@
+# =============================================================================
+# MethylBench - main analysis environment (portable)
+# =============================================================================
+#   conda env create -f envs/methylbench.yml
+#   conda activate methylbench
+#
+# Versions are pinned to the environment used for the revised manuscript
+# (R 4.4.2 / Bioconductor 3.20; DSS 2.54.0, DMRcate 3.2.1). For a bit-identical
+# Linux-64 environment use envs/methylbench_linux-64_explicit.txt instead:
+#   conda create --name methylbench --file envs/methylbench_linux-64_explicit.txt
+#
+# Covers 05_parse_toulligqc.py and all R scripts (06-15).
+# Not included:
+#   - modkit, ToulligQC  -> envs/ont.yml
+#   - pb-CpG-tools       -> envs/pacbio.yml
+#   - Nextflow + Singularity/Apptainer for 04_methylseq.sh -> system installation
+# =============================================================================
+
+name: methylbench
+
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+
+dependencies:
+  - python=3.14
+  - r-base=4.4.2
+
+  # R - data handling, CLI, plotting
+  - r-optparse=1.8.2
+  - r-data.table=1.17.8
+  - r-tidyverse=2.0.0
+  - r-dplyr=1.2.1
+  - r-ggplot2=4.0.3
+  - r-stringi=1.8.7
+  - r-reshape2=1.4.5
+  - r-scales=1.4.0
+  - r-ggridges=0.5.7
+  - r-ggrepel=0.9.8
+  - r-patchwork=1.3.2
+  - r-pheatmap=1.0.13
+  - r-rcolorbrewer=1.1_3
+  - r-viridis=0.6.5
+  - r-circlize=0.4.18
+  - r-complexupset=1.3.3
+  - r-upsetr=1.4.1
+
+  # Bioconductor 3.20 - differential methylation
+  - bioconductor-limma=3.62.1
+  - bioconductor-bsseq=1.42.0
+  - bioconductor-dss=2.54.0
+  - bioconductor-dmrcate=3.2.1
+  - bioconductor-complexheatmap=2.22.0
+
+  # Bioconductor 3.20 - genomic annotation (script 15; DMRcate::extractRanges)
+  - bioconductor-annotatr=1.32.0
+  - bioconductor-genomicranges=1.58.0
+  - bioconductor-iranges=2.40.0
+  - bioconductor-biocgenerics=0.52.0
+  - bioconductor-genomicfeatures=1.58.0
+  - bioconductor-rtracklayer=1.66.0
+  - bioconductor-annotationhub=3.14.0
+  - bioconductor-experimenthub=2.14.0
+  - bioconductor-txdb.hsapiens.ucsc.hg38.knowngene=3.20.0
+  - bioconductor-org.hs.eg.db=3.20.0
