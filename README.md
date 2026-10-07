@@ -36,30 +36,30 @@ MethylBench/
 │   │   ├── 02_toulligqc.sh			# ToulligQC, perform QC analysis on alignend .bam files and create intermediary files.         
 │   │   ├── 03_pbcpgtools.sh			# pb-cpg-tools, extract methylation information from PacBio alignment files.         		
 │   │   └── 04_methylseq.sh			# nf-core/methylseq, run the nextflow methylseq pipeline for standard short-read data processing.         		
+ ^t^b    ^t^b    ^t^t ^t^` ^t^` run_methylbench.sh              # Executes all R scripts (whole MethylBench Analysis) in one run.
 │   ├── python/
 │   │   ├── 05_parse_toulligqc.py	       	# Summarize over ToulligQC .data files into one QC table        
 │   └── R/
 │       ├── 06_visualize_toulligqc_summary.R 	# Visualization for ONT QC reports. 
 │       ├── 07_generate_cpg_stats.R		# Summarize CpG information for further analysis.
-│       ├── 08_qc_visualization.R 		# QC Visualization, Figure 3. 
-│       ├── 09_correlation_analysis.R 		# Correlation Analysis, Figure 4. 
+│       ├── 08_qc_visualization.R 		# QC Visualization, Figure 3, Suppl. Figure 16 & Suppl. Table S6 (--all_path).
+│       ├── 09_correlation_analysis.R 		# Correlation Analysis, Figure 4, Suppl. Figures 2 & 19, Suppl. Table S7.
 │       ├── 10_density_plots.R 			# Methylation Density Analysis, Figure 5. 
 │       ├── 11_pca.R 				# Principal Component Analysis (sample scores), Figure 6, Suppl. Figure 1.
 │       ├── limma_diff_meth.R 			# Exploratory paired limma per platform (input for 12, Suppl. Figure 7).
 │       ├── 12_differential_methylation.R 	# Exploratory limma & Wilcoxon analysis, Figure 7, Suppl. Figures 6-8.
 │       ├── 13_DMR_DSS_analysis.R 		# Tier1/Tier2 consensus sets, paired DSS / EPIC limma (M-values), DMRcate;
 │       │					# Figure 8, Figure 9A/B/D, Suppl. Figures 12-15, Suppl. Table S2 (--unpaired).
-│       ├── 14_downsampling_sensitivity.R 	# Depth-matching sensitivity analysis on Tier1, Suppl. Figure 16, Suppl. Table S5.
+│       ├── 14_downsampling_sensitivity.R 	# Depth-matching sensitivity analysis on Tier1, Suppl. Figure 17, Suppl. Table S5.
 │       ├── 15_annotation_enrichment_background.R 	# Background-corrected annotation enrichment (two hierarchies);
-│       │					# Figure 9C, Suppl. Figures 9 and 17, Suppl. Tables S3/S4.
+│       │					# Figure 9C, Suppl. Figures 9 and 18, Suppl. Tables S3/S4.
 │       └── utils/
 │           └── helpers.R			# Helper functionality.
 │
 └── envs/
-    ├── environment.yml				# Basic environment, Tools and Python utility
     ├── ont.yml					# ONT related tools, modkit, toulligQC
     ├── pacbio.yml				# PacBio specific tool, pb-cpg-tools
-    └── r_analysis.yml				# R-related packages for R-analysis
+    └── methylbench.yml				# Actual MethylBench Analysis
 ```
 
 ---
@@ -85,10 +85,9 @@ cd MethylBench
 
 # Create environments
 cd envs/
-conda env create -f environment.yml
 conda env create -f ont.yml
 conda env create -f pacbio.yml
-conda env create -f r_analysis.yml
+conda env create -f methylbench.yml
 
 cd ..
 ```

@@ -9,6 +9,19 @@
 #   ONT vs. PacBio vs. TWIST comparison for GIAB1/GIAB2 (Figure 4B),
 #   since these are the three highest-coverage methods assessed.
 #
+#   Revision (Reviewer 1, Minor #4): because methylation levels are bimodal,
+#   genome-wide correlations are dominated by CpGs near 0 or 1. Pairwise
+#   correlations are therefore additionally reported per methylation stratum
+#   (Low: mean beta < 0.2; Intermediate: 0.2-0.8; High: > 0.8). The stratum
+#   is assigned per CpG from the MEAN of the two compared platforms, so that
+#   no single platform's measurement error determines stratum membership.
+#   Because restricting the range of beta-values attenuates Pearson's r by
+#   construction, Spearman's rho and the mean absolute difference (MAD) of
+#   beta-values are reported as well. Outputs:
+#     - Correlation_by_methylation_stratum.tsv (all samples, thresholds, strata)
+#     - Table_S7_intermediate_correlation.tsv   (10x; mean and range per pair)
+#     - SupplFig19A_Blood / B_Fibro / C_GIAB    (single panels, PNG + PDF)
+#
 # Input:
 #   --datadir   Directory containing merged methylation matrices
 #               (Blood_without_EPIC.csv, Fibro_without_EPIC.csv,
@@ -244,4 +257,149 @@ ggsave(p_ont_twist,
   height = 12, width = 14, dpi = 300
 )
 
-cat(sprintf("\n[5/5] Done. 5 figures written to: %s\n", opt$outdir))
+# =============================================================================
+# 6. Correlation stratified by methylation level (Reviewer 1, Minor #4)
+# =============================================================================
+
+cat("[5/6] Computing correlations per methylation stratum...\n")
+
+STRATUM_LOWER  <- 0.2
+STRATUM_UPPER  <- 0.8
+STRATUM_LEVELS <- c("All", "Low", "Intermediate", "High")
+STRATUM_LABELS <- c(
+  All          = "All CpGs",
+  Low          = sprintf("Low (mean beta < %.1f)", STRATUM_LOWER),
+  Intermediate = sprintf("Intermediate (%.1f-%.1f)", STRATUM_LOWER, STRATUM_UPPER),
+  High         = sprintf("High (mean beta > %.1f)", STRATUM_UPPER)
+)
+
+#' Pairwise agreement per methylation stratum.
+#'
+#' Uses the same CpG selection as computeCorrAcrossCoverages() (for cov > 0:
+#' all methods of the sample >= cov via extractCovDf()), so that the "All"
+#' stratum reproduces the values shown in Figure 4 / Supplementary Figure 2.
+computeStratifiedCorr <- function(data, samples, methods, coverages,
+                                  lower = STRATUM_LOWER, upper = STRATUM_UPPER) {
+  stopifnot(is.data.table(data))
+  out <- list()
+  for (smp in samples) {
+    for (cov in coverages) {
+      if (cov == 0) {
+        filtered <- data
+      } else {
+        cov_cols <- paste0(methods, "_cov_", smp)
+        cov_cols <- cov_cols[cov_cols %in% colnames(data)]
+        filtered <- extractCovDf(data, threshold = cov, cov_cols = cov_cols)
+      }
+      for (pair in combn(names(methods), 2, simplify = FALSE)) {
+        c1 <- paste0(methods[pair[1]], "_", smp)
+        c2 <- paste0(methods[pair[2]], "_", smp)
+        if (!all(c(c1, c2) %in% colnames(filtered))) next
+        x  <- filtered[[c1]]
+        y  <- filtered[[c2]]
+        ok <- !is.na(x) & !is.na(y)
+        x  <- x[ok]; y <- y[ok]
+        if (length(x) == 0) next
+        # Guard against percent-scaled input (0-100) -- strata are defined on 0-1
+        scale_f <- if (max(c(x, y)) > 1.5) 100 else 1
+        m <- (x + y) / (2 * scale_f)
+        stratum <- ifelse(m < lower, "Low", ifelse(m > upper, "High", "Intermediate"))
+        for (s in STRATUM_LEVELS) {
+          idx <- if (s == "All") rep(TRUE, length(x)) else stratum == s
+          n   <- sum(idx)
+          out[[length(out) + 1]] <- data.frame(
+            Sample     = smp,
+            Coverage   = cov,
+            Comparison = paste(pair[1], "vs", pair[2]),
+            Stratum    = s,
+            n_CpGs     = n,
+            frac_CpGs  = n / length(x),
+            Pearson    = if (n >= 3) cor(x[idx], y[idx], method = "pearson")  else NA_real_,
+            Spearman   = if (n >= 3) cor(x[idx], y[idx], method = "spearman") else NA_real_,
+            MAD        = if (n >= 1) mean(abs(x[idx] - y[idx])) / scale_f    else NA_real_
+          )
+        }
+      }
+    }
+  }
+  res <- do.call(rbind, out)
+  res$Coverage2 <- factor(ifelse(res$Coverage == 0, "None", paste0(res$Coverage, "x")),
+                          levels = ifelse(coverages == 0, "None", paste0(coverages, "x")))
+  res$Stratum   <- factor(res$Stratum, levels = STRATUM_LEVELS)
+  res
+}
+
+strat_blood <- computeStratifiedCorr(blood, paste0("Blood", 1:5),     METHODS_NO_PACBIO, COVERAGES)
+strat_fibro <- computeStratifiedCorr(fibro, paste0("Fibro", 1:5),     METHODS_NO_PACBIO, COVERAGES)
+strat_giab  <- computeStratifiedCorr(giab,  c("GIAB1", "GIAB2"),      METHODS_PACBIO,    COVERAGES)
+strat_blood$Tissue <- "Blood"; strat_fibro$Tissue <- "Fibroblast"; strat_giab$Tissue <- "GIAB"
+strat_all <- rbind(strat_blood, strat_fibro, strat_giab)
+
+fwrite(strat_all, file.path(opt$outdir, "Correlation_by_methylation_stratum.tsv"), sep = "\t")
+
+# ---- Summary at the 10x threshold used throughout the paper ----------------
+strat_10x <- as.data.table(strat_all)[Coverage == 10]
+table_s7 <- strat_10x[, .(
+  n_samples        = .N,
+  median_n_CpGs    = as.numeric(median(n_CpGs)),
+  mean_frac_pct    = round(100 * mean(frac_CpGs), 1),
+  Pearson_mean     = round(mean(Pearson,  na.rm = TRUE), 3),
+  Pearson_min      = round(min(Pearson,   na.rm = TRUE), 3),
+  Pearson_max      = round(max(Pearson,   na.rm = TRUE), 3),
+  Spearman_mean    = round(mean(Spearman, na.rm = TRUE), 3),
+  MAD_mean         = round(mean(MAD,      na.rm = TRUE), 3)
+), by = .(Tissue, Comparison, Stratum)][order(Tissue, Stratum, Comparison)]
+fwrite(table_s7, file.path(opt$outdir, "Table_S7_intermediate_correlation.tsv"), sep = "\t")
+
+# Sanity check: the "All" stratum must reproduce the Figure 4 correlations
+chk <- merge(
+  as.data.table(strat_blood)[Stratum == "All", .(Sample, Coverage, Comparison, Pearson)],
+  as.data.table(corr_blood)[, .(Sample = sub("^_", "", Sample), Coverage, Comparison, Correlation)],
+  by = c("Sample", "Coverage", "Comparison")
+)
+if (nrow(chk) > 0) {
+  cat(sprintf("  Check vs. Figure 4 (Blood): max |r_All - r_Fig4| = %.2e (n = %d)\n",
+              max(abs(chk$Pearson - chk$Correlation), na.rm = TRUE), nrow(chk)))
+}
+
+cat("  Intermediate stratum at 10x (mean Pearson / Spearman / MAD per tissue):\n")
+print(table_s7[Stratum == "Intermediate",
+               .(Pearson = round(mean(Pearson_mean), 3),
+                 Pearson_range = sprintf("%.3f-%.3f", min(Pearson_min), max(Pearson_max)),
+                 Spearman = round(mean(Spearman_mean), 3),
+                 MAD = round(mean(MAD_mean), 3),
+                 frac_pct = round(mean(mean_frac_pct), 1)),
+               by = Tissue])
+
+# ---- Single panels for Inkscape (one per tissue) ----------------------------
+cat("[6/6] Plotting stratified correlations...\n")
+
+save_panel <- function(p, name, width, height) {
+  ggsave(file.path(opt$outdir, paste0(name, ".png")), p,
+         width = width, height = height, dpi = 300)
+  ggsave(file.path(opt$outdir, paste0(name, ".pdf")), p,
+         width = width, height = height, device = cairo_pdf)
+}
+
+plot_strat <- function(df) {
+  df <- as.data.table(df)[, .(Pearson = mean(Pearson, na.rm = TRUE),
+                              lo = min(Pearson, na.rm = TRUE),
+                              hi = max(Pearson, na.rm = TRUE)),
+                          by = .(Coverage2, Comparison, Stratum)]
+  ggplot(df, aes(x = Coverage2, y = Pearson, color = Comparison, group = Comparison)) +
+    geom_linerange(aes(ymin = lo, ymax = hi), alpha = 0.4, linewidth = 1.2) +
+    geom_point(size = 3) +
+    geom_line() +
+    scale_color_manual(values = C25) +
+    facet_wrap(~Stratum, nrow = 1, scales = "free_y", labeller = as_labeller(STRATUM_LABELS)) +
+    labs(x = "Coverage Filter", y = "Pearson correlation coefficient") +
+    guides(color = guide_legend(nrow = 2)) +
+    theme_corr() +
+    theme(strip.text = element_text(size = 16))
+}
+
+save_panel(plot_strat(strat_blood), "SupplFig19A_Blood", width = 16, height = 7)
+save_panel(plot_strat(strat_fibro), "SupplFig19B_Fibro", width = 16, height = 7)
+save_panel(plot_strat(strat_giab),  "SupplFig19C_GIAB",  width = 16, height = 7)
+
+cat(sprintf("\n[6/6] Done. Figures and tables written to: %s\n", opt$outdir))

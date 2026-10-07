@@ -633,8 +633,8 @@ p_scatter <- ggplot(
               linetype = "dashed", linewidth = 1.2) +
   scale_color_manual(values = c(
     "Concordant"      = "green",
-    "EPIC only"       = "#009E73",
-    "TWIST only"      = "#DC79A7",
+    "EPIC only"       = METHOD_COLORS[["EPIC"]],
+    "TWIST only"      = METHOD_COLORS[["TWIST"]],
     "Not significant" = "grey80"
   )) +
   coord_cartesian(xlim = c(-1, 1), ylim = c(-1, 1)) +
