@@ -1,46 +1,16 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# MethylBench – Differential Methylation Analysis
+# MethylBench - exploratory differential methylation (limma / Wilcoxon)
 # =============================================================================
-# Description:
-#   Computes differentially methylated CpGs (DMCs) between blood and fibroblast
-#   samples using a Wilcoxon rank-sum test per method. Generates:
-#     - Delta-beta density plot per method
-#     - Heatmaps of top 500 / 1000 / 5000 variable CpGs
-#     - UpSet plot (limma-based DMC overlap, from pre-computed per-method files)
-#     - UpSet plot (Wilcoxon-based DMC overlap, EPIC vs TWIST)
-#     - Cross-platform EPIC vs TWIST delta-beta scatter
-#     - Variance boxplot per method (Blood and Fibro)
-#     - Coverage boxplot per method (Blood and Fibro)
-#
-# Input:
-#   --all_path      Path to ALL_with_EPIC.csv (EPIC + sequencing matrix)
-#                   Column naming convention in this matrix:
-#                     EPIC_Blood1..5, EPIC_Fibro1..5
-#                     ONT_Blood1..5,  WGEC_Blood1..5, TWIST_Blood1..5, RRBS_Blood1..5
-#                     ONT_Fibro1..5,  WGEC_Fibro1..5, TWIST_Fibro1..5, RRBS_Fibro1..5
-#                     ONT_cov_*,      WGEC_cov_*,     TWIST_cov_*,     RRBS_cov_*
-#   --blood_path    Path to Blood_without_EPIC.csv
-#   --fibro_path    Path to Fibro_without_EPIC.csv
-#   --limma_dir     Directory with per-method limma DMC files:
-#                     EPIC_Blood_vs_Fibroblast.csv, ONT_Blood_vs_Fibroblast.csv,
-#                     TWIST_Blood_vs_Fibroblast.csv, RRBS_Blood_vs_Fibroblast.csv,
-#                     WGEC_Blood_vs_Fibroblast.csv
-#                   Expected columns: V1=CpG, V6=FDR
-#   --outdir        Output directory for figures
-#   --datadir       Output directory for intermediate data files
-#   --delta_cutoff  Absolute delta-beta threshold for significance [default: 0.1]
+# Restricts all five platforms to the common CpG set, runs the unpaired
+# Wilcoxon rank-sum test per CpG, combines it with the paired limma results of
+# limma_diff_meth.R and plots overlap, effect-size concordance, variance and
+# coverage. Figure 7; Suppl. Figures 6-8.
 #
 # Usage:
-#   Rscript 06_differential_methylation.R \
-#     --all_path    data/matrices/ALL_with_EPIC.csv \
-#     --blood_path  data/matrices/Blood_without_EPIC.csv \
-#     --fibro_path  data/matrices/Fibro_without_EPIC.csv \
-#     --limma_dir   data/diff_meth/ \
-#     --outdir      results/figures/ \
-#     --datadir     results/diff_meth/
-#
-# Author:  MethylBench – Laufer et al.
+#   Rscript scripts/R/12_differential_methylation.R --all_path ALL.csv \
+#     --blood_path Blood_without_EPIC.csv --fibro_path Fibro_without_EPIC.csv \
+#     --limma_dir results/diff_meth/ --outdir results/figures/ --datadir results/diff_meth/
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -102,7 +72,6 @@ col.vec      <- get_colors()
 BLOOD_IDS    <- paste0("Blood", 1:5)
 FIBRO_IDS    <- paste0("Fibro",  1:5)
 
-# Platform annotation for heatmap and upset
 PLATFORMS <- c(
   "EPIC"  = "Array",
   "TWIST" = "ShortRead",
@@ -124,6 +93,8 @@ METHOD_PREFIX <- c(
   RRBS  = "RRBS"
 )
 
+# ---- 1. Load matrices and restrict to the common CpG set --------------------
+
 cat("[1/6] Loading matrices...\n")
 
 all   <- fread(opt$all_path,   header = TRUE, sep = ",", na.strings = "NA")
@@ -132,7 +103,6 @@ fibro <- fread(opt$fibro_path, header = TRUE, sep = ",", na.strings = "NA")
 
 cat(sprintf("  ALL  : %d CpGs (genome-wide, before common-platform restriction)\n", nrow(all)))
 
-# ---- Diagnostics: isolate WHERE the cross-platform intersection collapses -
 cat("\n[Diagnostics] Per-platform coverage (>=1 non-NA Blood/Fibro sample):\n")
 platform_masks <- list()
 for (p in c("EPIC", "ONT", "WGEC", "TWIST", "RRBS")) {
@@ -155,19 +125,13 @@ seq4_mask <- platform_masks[["ONT"]] & platform_masks[["WGEC"]] & platform_masks
 cat(sprintf("\n[Diagnostics] ONT & WGEC & TWIST & RRBS (sequencing only, no EPIC): %d CpGs\n", sum(seq4_mask)))
 cat(sprintf("[Diagnostics] ...of those, also covered by EPIC: %d CpGs\n", sum(seq4_mask & platform_masks[["EPIC"]])))
 
-# Per the paper's stated methodology, this exploratory analysis is
-# restricted to the common set of CpGs covered by every platform (at least
-# one non-NA sample per platform) -- NOT the full genome-wide matrix. Genome-
-# wide input matrices are mostly NA for any single platform pair, let alone
-# all five simultaneously, so skipping this step leaves the heatmap/UpSet
-# steps downstream with only a handful of literal all-5-complete rows.
+# Common set: CpGs with at least one non-NA sample on every platform.
 common_platform_mask <- platformsCoveredMask(all, c("EPIC", "ONT", "WGEC", "TWIST", "RRBS"))
 all <- all[common_platform_mask]
 cat(sprintf("\n  ALL  : %d CpGs after restricting to those covered by all 5 platforms\n", nrow(all)))
 
 cat("[2/6] Building per-method matrices...\n")
 
-# Helper: select columns by method prefix and sampleset
 select_meth_cols <- function(dt, prefix, sample_ids) {
   cols <- paste0(prefix, "_", sample_ids)
   cols <- intersect(cols, colnames(dt))
@@ -197,6 +161,8 @@ methods <- list(
   )
 )
 
+# ---- 2. Wilcoxon rank-sum test per CpG --------------------------------------
+
 cat("[3/6] Running Wilcoxon tests...\n")
 
 results_list <- list()
@@ -221,6 +187,8 @@ for (method in names(methods)) {
   mean_fibro  <- rowMeans(fibro_mat, na.rm = TRUE)
   delta_beta  <- mean_blood - mean_fibro
 
+  # Unpaired rank-sum test (the signed-rank test cannot reach p < 0.0625 with
+  # five pairs).
   pvals <- vapply(
     seq_len(nrow(blood_mat)),
     FUN = function(i) {
@@ -263,9 +231,11 @@ fwrite(as.data.table(all_results),
 )
 cat(sprintf("  Wilcoxon results: %d rows\n", nrow(all_results)))
 
+# ---- 3. Figures -------------------------------------------------------------
+
 cat("[4/6] Generating figures...\n")
 
-# ---- 5.1 Delta-beta density -------------------------------------------------
+# ---- Delta-beta density (Suppl. Figure 6) -----------------------------------
 
 p_db <- ggplot(all_results, aes(x = delta_beta, color = Method)) +
   geom_density(alpha = 0.4, linewidth = 1.5) +
@@ -285,13 +255,7 @@ ggsave(p_db,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- 5.2 Heatmaps (top 500 / 1000 / 5000 variable CpGs) --------------------
-
-# ---- Diagnostics: cross-method CpG ID overlap ------------------------------
-# The exploratory all_results object is built independently per method (see
-# section 3), so a coordinate/ID mismatch between any pair of methods would
-# silently collapse the cross-method intersection without an obvious error
-# until the complete-case filter below. Surface this explicitly.
+# ---- Heatmaps of the most variable CpGs (Suppl. Figure 8) -------------------
 cat("\n[Diagnostics] CpGs tested per method (exploratory, before any filtering):\n")
 print(table(all_results$Method))
 
@@ -321,12 +285,6 @@ mat_wide <- all_results %>%
   column_to_rownames("CpG") %>%
   as.matrix()
 
-# Heatmap clustering (hclust) cannot handle NA/NaN/Inf. With genome-wide
-# (not pre-intersected) input matrices, most CpGs are NOT covered by every
-# method, so mat_wide is largely sparse/NA. Restrict to CpGs with complete
-# data across all methods before ranking by variance -- a cross-method
-# variance/heatmap comparison isn't meaningful for a CpG some methods never
-# tested anyway.
 n_before_complete <- nrow(mat_wide)
 mat_wide <- mat_wide[complete.cases(mat_wide), , drop = FALSE]
 cat(sprintf(
@@ -415,7 +373,7 @@ make_heatmap(500,  "Heatmap_top500.png")
 make_heatmap(1000, "Heatmap_top1000.png")
 make_heatmap(5000, "Heatmap_top5000.png")
 
-# ---- 5.3 UpSet plot – limma DMCs --------------------------------------------
+# ---- UpSet plot - limma DMCs (Suppl. Figure 7) ------------------------------
 
 limma_files <- list(
   EPIC  = file.path(opt$limma_dir, "EPIC_Blood_vs_Fibroblast.csv"),
@@ -445,11 +403,6 @@ if (length(missing_limma) > 0) {
   cat("  dim: ", paste(dim(upset_data), collapse = " x "), "\n")
   cat("  colnames: ", paste(colnames(upset_data), collapse = ", "), "\n\n")
 
-  # UpSetR::fromList() silently DROPS any method with zero elements (zero
-  # significant DMCs at p<0.05) from the resulting columns. Hardcoding all
-  # 5 platform names in intersect=/queries= then crashes with a cryptic
-  # "undefined columns selected" if any platform's column is missing.
-  # Restrict to platforms actually present, and say so explicitly.
   requested_platforms <- c("ONT", "WGEC", "RRBS", "TWIST", "EPIC")
   available_platforms <- intersect(requested_platforms, colnames(upset_data))
   dropped_platforms   <- setdiff(requested_platforms, available_platforms)
@@ -471,15 +424,6 @@ if (length(missing_limma) > 0) {
   set_queries <- c(
     lapply(available_platforms, function(p) upset_query(set = p, fill = METHOD_COLORS[[p]])),
     singleton_queries(upset_data, available_platforms, METHOD_COLORS, 100))
-  # NOTE: per-platform "singleton intersection" highlighting (upset_query
-  # with intersect = <one platform>) was dropped here -- with some data
-  # distributions, a platform's "exclusive/alone" bar can end up with zero
-  # rows after the min_size filter (or not exist at all if every DMC for
-  # that platform always overlaps with at least one other platform), which
-  # crashes ComplexUpset's aesthetics matching ("Aesthetics must be either
-  # length 1 or the same as the data"). Coloring only the left set-size
-  # bars (set_queries) is robust regardless of which intersections are
-  # actually displayed.
 
   png(file.path(opt$outdir, "upset_limma.png"),
     width = 14, height = 7, units = "in", res = 400)
@@ -522,10 +466,10 @@ if (length(missing_limma) > 0) {
 
   dev.off()
   cat("  Saved: upset_limma.png\n")
-  }  # end: length(available_platforms) >= 2
+  }
 }
 
-# ---- 5.4 UpSet plot – Wilcoxon DMCs (EPIC vs TWIST) ------------------------
+# ---- UpSet plot - Wilcoxon DMCs (Figure 7A) ---------------------------------
 UPSET_MIN_SIZE <- 100
 
 cat("\n[Diagnostics] Wilcoxon DMCs per method (FDR < 0.05, |delta beta| >= cutoff):\n")
@@ -549,10 +493,9 @@ if (length(dropped_platforms_wil) > 0) {
 if (length(available_platforms_wil) < 2) {
   warning("upset_wilcoxon.png: fewer than 2 platforms with significant DMCs -- skipped.")
 } else {
-  
-  # Keep only CpGs that are DMCs in at least one DISPLAYED platform. 
+
   df_sig <- df_sig[rowSums(as.matrix(df_sig[, available_platforms_wil])) > 0, ]
-  
+
   stripe_df_wil <- data.frame(
     set    = available_platforms_wil,
     labeli = unname(PLATFORMS[available_platforms_wil])
@@ -562,10 +505,10 @@ if (length(available_platforms_wil) < 2) {
       upset_query(set = p, fill = METHOD_COLORS[[p]])),
     singleton_queries(df_sig, available_platforms_wil, METHOD_COLORS, UPSET_MIN_SIZE)
   )
-  
+
   png(file.path(opt$outdir, "upset_wilcoxon.png"),
       width = 16, height = 10, units = "in", res = 400)
-  
+
   print(ComplexUpset::upset(
     df_sig,
     intersect = available_platforms_wil,
@@ -589,12 +532,12 @@ if (length(available_platforms_wil) < 2) {
     theme(text = element_text(size = 25), axis.text = element_text(size = 18),
           axis.title = element_text(size = 20), strip.text = element_text(size = 18),
           legend.text = element_text(size = 18), legend.title = element_text(size = 20)))
-  
+
   dev.off()
   cat("  Saved: upset_wilcoxon.png\n")
 }
 
-# ---- 5.5 Cross-platform EPIC vs TWIST delta-beta scatter --------------------
+# ---- EPIC vs. TWIST delta-beta scatter (Figure 7B) --------------------------
 
 epic_df  <- all_results %>%
   filter(Method == "EPIC") %>%
@@ -662,7 +605,7 @@ ggsave(p_scatter,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- 5.6 Variance per method (Blood and Fibro, no GIAB) ---------------------
+# ---- Within-group variance per method (Figure 7D) ---------------------------
 
 cat("[5/6] Computing variance and coverage...\n")
 
@@ -717,7 +660,7 @@ ggsave(p_var,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- 5.7 Coverage per method (Blood and Fibro) ------------------------------
+# ---- Per-CpG coverage on the common CpG set (Figure 7C) ---------------------
 
 merged_cov <- merge(all, blood, by = c("chr", "start"))
 merged_cov <- merge(merged_cov, fibro, by = c("chr", "start"))

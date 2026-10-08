@@ -1,77 +1,15 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# MethylBench – Depth-Matched Downsampling Sensitivity Analysis (Tier 1)
-# Supplementary Figure 16, Supplementary Table S5
+# MethylBench - depth-matched sensitivity analysis
 # =============================================================================
-# Description:
-#   Addresses Reviewer 1, Major Comment 3: "Given that sequencing depth remains
-#   substantially different across platforms within Tier 1 (Figure 8), please
-#   clarify whether a controlled downsampling or depth-matched sensitivity
-#   analysis was considered."
-#
-#   Starting from the Tier 1 BSseq objects and the paired results of
-#   13_DMR_DSS_analysis.R (same --datadir), this script:
-#
-#     1. Determines a common target coverage T: the lowest of the
-#        platform-wise median per-CpG coverages on Tier 1 (or --target_cov).
-#     2. Downsamples every sample of every platform: at each CpG with
-#        coverage > T, exactly T reads are drawn without replacement, and the
-#        methylated count is drawn from a hypergeometric distribution
-#        (M ~ Hypergeom(M_orig, Cov_orig - M_orig, T)). CpGs with coverage
-#        <= T are left unchanged. Per-CpG coverage is thus capped at T on all
-#        platforms, and the methylation proportion is preserved in
-#        expectation.
-#     3. Re-runs the IDENTICAL primary workflow of 13_DMR_DSS_analysis.R on
-#        the downsampled data: paired Beta-Binomial model
-#        (DSS::DMLfit.multiFactor, ~ subject + group, smoothing span 500 bp),
-#        Wald test of the group coefficient, DMC calling at FDR < 0.05 and
-#        |delta beta| >= 0.1, and DMRcate on the paired per-CpG statistics.
-#     4. Repeats steps 2-3 for --n_reps independent replicates (fixed seeds).
-#     5. Compares the downsampled results with the non-downsampled ("before")
-#        results, which are read directly from 13's output (Tier1_DML.rds,
-#        Tier1_DMR.rds), so that "before" is exactly Figures 8/9:
-#          - number of DMCs and DMRs per platform,
-#          - pairwise Pearson r of CpG-level delta beta (all Tier 1 CpGs),
-#          - pairwise DMC Jaccard index,
-#          - pairwise base-pair-weighted DMR Jaccard index.
-#
-#   CHANGELOG (post-review): replaces the earlier version of this script,
-#   which (a) used the UNPAIRED DSS::DMLtest() + callDMR() instead of the
-#   paired DMLfit.multiFactor() + DMRcate workflow of the primary analysis,
-#   (b) redrew M binomially from the original methylation proportion instead
-#   of subsampling the observed reads, and (c) did not report DMC/DMR counts.
-#
-# Input:
-#   --dss_dir       --datadir of 13_DMR_DSS_analysis.R (paired run); must
-#                   contain BSseq_Tier1.rds, Tier1_DML.rds, Tier1_DMR.rds
-#   --outdir        Output directory for figures
-#   --datadir       Output directory for tables / RDS
-#   --target_cov    Fixed target coverage [default: auto, see step 1]
-#   --n_reps        Number of downsampling replicates [default: 3]
-#   --seed          RNG seed [default: 42]
-#   --cores         Platforms processed in parallel (fork) [default: 1]
-#   --plot_only     Only redraw the figure panels from the tables in --datadir
-#                   (no downsampling/re-analysis; needs a previous full run)
-#
-# Output (--datadir):
-#   - downsampling_coverage.tsv        median/mean coverage per platform, before/after, target T
-#   - downsampling_counts.tsv          DMCs/DMRs per platform, before vs. after (mean, SD, per replicate)
-#   - downsampling_pairwise.tsv        Pearson r (delta beta), DMC Jaccard, DMR Jaccard, before vs. after
-#   - Table_S5_downsampling.tsv        combined summary used for Supplementary Table S5
-#   - downsampling_results_rep<i>.rds  DML/DMC/DMR of each replicate
-# Output (--outdir):
-#   - SupplFig16A_coverage, SupplFig16B_DMC_counts, SupplFig16C_DMR_counts,
-#     SupplFig16D_deltabeta_r, SupplFig16E_DMR_jaccard, SupplFig16F_DMC_jaccard
-#     -- one panel per file, each as .png (300 dpi) and .pdf (vector, for Inkscape)
+# Caps per-CpG coverage of all sequencing platforms on Tier 1 at a common target
+# depth T (default: lowest platform median) by hypergeometric downsampling and
+# repeats the paired DSS + DMRcate analysis of 13_DMR_DSS_analysis.R.
+# Suppl. Figure 17, Suppl. Table S5.
 #
 # Usage:
-#   Rscript scripts/R/14_downsampling_sensitivity.R \
-#     --dss_dir  results/dmr_dss/ \
-#     --outdir   results/figures/ \
-#     --datadir  results/dmr_dss/downsampling/ \
-#     --n_reps 3 --cores 4
-#
-# Author: MethylBench – Laufer et al.
+#   Rscript scripts/R/14_downsampling_sensitivity.R --dss_dir results/dmr_dss/ \
+#     --outdir results/figures/ --datadir results/downsampling/ --n_reps 5
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -98,7 +36,7 @@ option_list <- list(
   make_option("--datadir", type = "character", default = "results/dmr_dss/downsampling/", metavar = "DIR"),
   make_option("--target_cov", type = "double", default = NA,
               help = "Fixed target coverage; default = lowest platform median on Tier 1"),
-  make_option("--n_reps", type = "integer", default = 3, help = "Downsampling replicates [default: 3]"),
+  make_option("--n_reps", type = "integer", default = 5, help = "Downsampling replicates [default: 5]"),
   make_option("--seed", type = "integer", default = 42),
   make_option("--cores", type = "integer", default = 1, help = "Platforms in parallel [default: 1]"),
   make_option("--fdr_cutoff", type = "double", default = 0.05),
@@ -122,12 +60,10 @@ dir.create(opt$datadir, recursive = TRUE, showWarnings = FALSE)
 
 METHODS   <- c("ONT", "TWIST", "WGEC", "RRBS")
 TISSUES   <- c("Blood", "Fibro")
-MCOL      <- METHOD_COLORS[METHODS]            # central palette from helpers.R
+MCOL      <- METHOD_COLORS[METHODS]
 COND_COL  <- c(Before = "#9DB4C0", After = "#E76F51")
 
-# -------------------------------------------------------------------------
-# Helpers (identical model and thresholds as 13_DMR_DSS_analysis.R)
-# -------------------------------------------------------------------------
+# ---- Helpers (identical model and thresholds as 13_DMR_DSS_analysis.R) ------
 
 get_subject_id <- function(sample_names) {
   m  <- regmatches(sample_names, regexec("(?:Blood|Fibro)([0-9]+)$", sample_names))
@@ -143,6 +79,7 @@ compute_delta_beta <- function(bs, blood_samples, fibro_samples) {
     rowMeans(beta[, fibro_samples, drop = FALSE], na.rm = TRUE)
 }
 
+# Same paired model as in 13_DMR_DSS_analysis.R (design ~ subject + group).
 run_dss_paired <- function(bs_blood, bs_fibro) {
   blood <- sampleNames(bs_blood); fibro <- sampleNames(bs_fibro)
   bs <- BiocGenerics::combine(bs_blood, bs_fibro)
@@ -178,6 +115,9 @@ run_dmrcate <- function(test, label) {
   if (is.null(res)) GRanges() else res
 }
 
+# Draws exactly `target` reads without replacement at every CpG with higher
+# coverage: methylated reads ~ Hypergeometric(M, Cov - M, target). CpGs with
+# coverage <= target are left unchanged.
 downsample_bsseq <- function(bs, target, seed) {
   Cov <- as.matrix(getCoverage(bs, type = "Cov")); M <- as.matrix(getCoverage(bs, type = "M"))
   storage.mode(Cov) <- "numeric"; storage.mode(M) <- "numeric"
@@ -188,7 +128,6 @@ downsample_bsseq <- function(bs, target, seed) {
   if (length(above) > 0) {
     set.seed(seed)
     newCov[above] <- target
-    # draw exactly `target` reads without replacement from the observed reads
     newM[above] <- rhyper(length(above), m = M[above], n = Cov[above] - M[above], k = target)
   }
   BSseq(chr = as.character(seqnames(bs)), pos = start(bs),
@@ -222,9 +161,7 @@ pairwise_metrics <- function(dml, dmr) {
 
 cov_values <- function(bs) { v <- as.numeric(as.matrix(getCoverage(bs, type = "Cov"))); v[!is.na(v) & v > 0] }
 
-# -------------------------------------------------------------------------
-# 1. Load Tier 1 data and "before" results from 13_DMR_DSS_analysis.R
-# -------------------------------------------------------------------------
+# ---- 1. Load Tier 1 data and "before" results from 13_DMR_DSS_analysis.R ----
 cat("[1/5] Loading Tier 1 BSseq objects and paired results of 13_DMR_DSS_analysis.R...\n")
 bsseq_t1   <- readRDS(file.path(opt$dss_dir, "BSseq_Tier1.rds"))
 if (!opt$plot_only) {
@@ -233,9 +170,7 @@ if (!opt$plot_only) {
 }
 cat(sprintf("  Tier 1: %d CpGs\n", nrow(bsseq_t1[[paste0(METHODS[1], "_Blood")]])))
 
-# -------------------------------------------------------------------------
-# 2. Target coverage
-# -------------------------------------------------------------------------
+# ---- 2. Target coverage -----------------------------------------------------
 cat("[2/5] Determining target coverage...\n")
 cov_before <- lapply(setNames(METHODS, METHODS), function(m)
   unlist(lapply(TISSUES, function(t) cov_values(bsseq_t1[[paste0(m, "_", t)]]))))
@@ -245,9 +180,7 @@ TARGET <- if (!is.na(opt$target_cov)) opt$target_cov else floor(min(med_before))
 cat(sprintf("  -> Target coverage T = %dx (lowest platform median: %s)\n",
             as.integer(TARGET), names(which.min(med_before))))
 
-# -------------------------------------------------------------------------
-# 3. Downsampling replicates: paired DSS + DMRcate per platform
-# -------------------------------------------------------------------------
+# ---- 3. Downsampling replicates: paired DSS + DMRcate per platform ----------
 if (!opt$plot_only) {
 cat(sprintf("[3/5] Downsampling and re-analysis (%d replicates, %d core(s))...\n", opt$n_reps, opt$cores))
 
@@ -274,9 +207,7 @@ reps <- lapply(seq_len(opt$n_reps), function(i) {
   res
 })
 
-# -------------------------------------------------------------------------
-# 4. Tables
-# -------------------------------------------------------------------------
+# ---- 4. Tables --------------------------------------------------------------
 cat("[4/5] Writing tables...\n")
 
 cov_tab <- rbindlist(lapply(METHODS, function(m) data.table(
@@ -312,7 +243,6 @@ pw_after <- pw_after_rep[, .(Pearson_r = mean(Pearson_r), Pearson_r_sd = sd(Pear
 pw_tab <- rbindlist(list(pw_before, pw_after), fill = TRUE)
 fwrite(pw_tab, file.path(opt$datadir, "downsampling_pairwise.tsv"), sep = "\t")
 
-# Combined summary for Supplementary Table S5
 s5_platform <- merge(cov_tab[, .(Platform, Median_Cov_before, Median_Cov_after)], count_tab, by = "Platform")
 s5_pairs <- merge(pw_before[, .(Pair, r_before = Pearson_r, DMC_J_before = DMC_Jaccard, DMR_J_before = DMR_Jaccard)],
                   pw_after[, .(Pair, r_after = Pearson_r, DMC_J_after = DMC_Jaccard, DMR_J_after = DMR_Jaccard)],
@@ -330,10 +260,9 @@ print(s5_pairs, digits = 3)
   pw_tab    <- fread(file.path(opt$datadir, "downsampling_pairwise.tsv"))
 }
 
-# -------------------------------------------------------------------------
-# 5. Supplementary Figure 16 -- one file per panel (PNG + PDF for Inkscape)
-# -------------------------------------------------------------------------
-cat("[5/5] Generating Supplementary Figure 16 panels...\n")
+# ---- 5. Supplementary Figure 17 (single panels) -----------------------------
+
+cat("[5/5] Generating Supplementary Figure 17 panels...\n")
 
 COND_LEVELS <- c("Before", "After")
 COND_LABELS <- c(Before = "Before depth matching",
@@ -352,8 +281,6 @@ save_panel <- function(p, name, width = 14, height = 12) {
   cat("  Saved:", name, "(.png, .pdf)\n")
 }
 
-# A: per-CpG coverage before vs. after. "After" uses the replicate-1 seeds;
-#    downsampling alone is cheap, so this also works with --plot_only.
 set.seed(opt$seed)
 cov_after <- lapply(setNames(METHODS, METHODS), function(m) {
   mi <- match(m, METHODS)
@@ -376,9 +303,8 @@ pA <- ggplot(cov_df, aes(Platform, Coverage, fill = Condition)) +
   scale_fill_manual(values = COND_COL, labels = COND_LABELS) +
   labs(title = "Per-CpG coverage", x = NULL, y = "Coverage (log10 scale)") +
   panel_theme + theme(axis.text.x = element_text(colour = MCOL[METHODS]))
-save_panel(pA, "SupplFig16A_coverage")
+save_panel(pA, "SupplFig17A_coverage")
 
-# B1/B2: number of DMCs and DMRs (separate files, so that they can be placed freely)
 count_long <- function(before, after, after_sd) {
   d <- rbind(count_tab[, .(Platform, Condition = "Before", Value = get(before), SD = NA_real_)],
              count_tab[, .(Platform, Condition = "After",  Value = get(after),  SD = get(after_sd))])
@@ -397,11 +323,10 @@ count_plot <- function(d, ylab, title) {
     panel_theme + theme(axis.text.x = element_text(colour = MCOL[METHODS]))
 }
 save_panel(count_plot(count_long("DMCs_before", "DMCs_after", "DMCs_after_sd"), "#DMCs", "Number of DMCs"),
-           "SupplFig16B_DMC_counts")
+           "SupplFig17B_DMC_counts")
 save_panel(count_plot(count_long("DMRs_before", "DMRs_after", "DMRs_after_sd"), "#DMRs", "Number of DMRs"),
-           "SupplFig16C_DMR_counts")
+           "SupplFig17C_DMR_counts")
 
-# Pairwise metrics, before -> after (one fill scale, so a single legend)
 pair_plot <- function(metric, sd_col, ylab, title) {
   d <- pw_tab[, .(Pair, Condition, Value = get(metric),
                   SD = if (sd_col %in% names(pw_tab)) get(sd_col) else NA_real_)]
@@ -416,11 +341,11 @@ pair_plot <- function(metric, sd_col, ylab, title) {
 }
 save_panel(pair_plot("Pearson_r", "Pearson_r_sd",
                      expression(paste("Pearson ", italic(r), " (", Delta*beta, ")")),
-                     "CpG-level effect-size concordance"), "SupplFig16D_deltabeta_r")
+                     "CpG-level effect-size concordance"), "SupplFig17D_deltabeta_r")
 save_panel(pair_plot("DMR_Jaccard", "DMR_Jaccard_sd", "Base-pair-weighted Jaccard index",
-                     "DMR-level overlap"), "SupplFig16E_DMR_jaccard")
+                     "DMR-level overlap"), "SupplFig17E_DMR_jaccard")
 save_panel(pair_plot("DMC_Jaccard", "DMC_Jaccard_sd", "Jaccard index",
-                     "DMC-level overlap"), "SupplFig16F_DMC_jaccard")
+                     "DMC-level overlap"), "SupplFig17F_DMC_jaccard")
 
 if (!opt$plot_only) writeLines(capture.output(sessionInfo()), file.path(opt$datadir, "sessionInfo.txt"))
 cat("\nDone.\n")

@@ -1,31 +1,15 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# MethylBench – Methylation Density Plots
+# MethylBench - methylation density distributions
 # =============================================================================
-# Description:
-#   Generates ridge/density plots of CpG methylation distributions across
-#   methods, samples and coverage thresholds. Covers:
-#     - Per-sampleset full density (Blood, Fibro, GIAB) – 0 and 10x filter
-#     - High-coverage representative samples (Blood3, Fibro4, GIAB2) –
-#       0/10/20/30/40x filter, split into low (0–30%) and high (70–100%)
-#       methylation windows
-#     - GIAB2 high-coverage ONT/TWIST/PacBio only (0–40x)
-#     - With-EPIC density at 10x (Blood3, Fibro4, GIAB2)
-#
-# Input:
-#   --datadir    Directory containing merged methylation matrices
-#                (Blood_without_EPIC.csv, Fibro_without_EPIC.csv,
-#                 GIAB_without_EPIC.csv, and optionally ALL.csv for EPIC)
-#   --outdir     Output directory for figures
-#   --epic_path  Path to ALL.csv / EPIC-merged matrix (optional)
+# Ridge plots of per-CpG methylation per sample and platform, unfiltered and
+# after coverage filtering; optionally including EPIC (--epic_path).
+# Figure 5; Suppl. Figures 3 and 4.
 #
 # Usage:
-#   Rscript 04_density_plots.R \
-#     --datadir  data/matrices/ \
-#     --outdir   results/figures/ \
-#     --epic_path data/matrices/ALL.csv
-#
-# Author:  MethylBench – Laufer et al.
+#   Rscript scripts/R/10_density_plots.R --datadir <matrices>/ \
+#     --outdir results/figures/ --epic_path ALL.csv
+#   (--datadir must contain Blood_, Fibro_ and GIAB_without_EPIC.csv)
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -85,7 +69,6 @@ COV_COLORS <- c(
 
 col.vec <- get_colors()
 
-# Shared theme
 theme_density <- function(base_size = 22) {
   theme_bw() +
   theme(
@@ -123,7 +106,7 @@ prep_long <- function(dt, method_order = METHOD_ORDER) {
 
 cat("[2/4] Building long-format data...\n")
 
-# ---- 5.1 Blood – full density (0 and 10x) -----------------------------------
+# ---- Blood – full density (0 and 10x) ---------------------------------------
 
 tp_blood <- buildMethLong(
   data      = blood,
@@ -158,7 +141,7 @@ ggsave(p_blood,
   height = 12, width = 15, dpi = 300
 )
 
-# ---- 5.2 Fibroblast – full density (0 and 10x) ------------------------------
+# ---- Fibroblast – full density (0 and 10x) ----------------------------------
 
 tp_fibro <- buildMethLong(
   data      = fibro,
@@ -193,7 +176,7 @@ ggsave(p_fibro,
   height = 12, width = 15, dpi = 300
 )
 
-# ---- 5.3 GIAB – full density (0 and 10x, with PacBio) ----------------------
+# ---- GIAB – full density (0 and 10x, with PacBio) ---------------------------
 
 tp_giab <- buildMethLong(
   data      = giab,
@@ -231,7 +214,7 @@ ggsave(p_giab,
   height = 12, width = 15, dpi = 300
 )
 
-# ---- 5.4 High-coverage representative samples: Blood3, Fibro4, GIAB2 --------
+# ---- High-coverage representative samples: Blood3, Fibro4, GIAB2 ------------
 
 tp_merged <- rbind(
   buildMethLong(blood, "Blood3", METHODS_NO_PACBIO, c(0, 10)),
@@ -275,7 +258,7 @@ plot_density_window <- function(data, xlim, filename) {
 plot_density_window(tp_merged, c(0,   0.3), "Density_High_Cov_0-30.png")
 plot_density_window(tp_merged, c(0.7, 1.0), "Density_High_Cov_70-100.png")
 
-# ---- 5.5 GIAB2 high-coverage ONT/TWIST/PacBio only (0–40x) -----------------
+# ---- GIAB2 high-coverage ONT/TWIST/PacBio only (0–40x) ----------------------
 
 tp_giab2 <- buildMethLong(
   data      = giab,
@@ -317,7 +300,7 @@ plot_giab2_window <- function(xlim, filename) {
 plot_giab2_window(c(0,   0.3), "Density_GIAB2_0-30.png")
 plot_giab2_window(c(0.7, 1.0), "Density_GIAB2_70-100.png")
 
-# ---- 5.6 With-EPIC density at 10x (Blood3, Fibro4, GIAB2) ------------------
+# ---- With-EPIC density at 10x (Blood3, Fibro4, GIAB2) -----------------------
 
 if (!is.null(opt$epic_path) && file.exists(opt$epic_path)) {
 
@@ -325,8 +308,6 @@ if (!is.null(opt$epic_path) && file.exists(opt$epic_path)) {
 
   all_mat <- fread(opt$epic_path, header = TRUE, sep = ",", na.strings = "NA")
 
-  # Select only the columns needed: EPIC betas + ONT/WGEC/TWIST/RRBS/PacBio
-  # for the three representative samples, then apply joint 10x filter
   keep_meth <- c(
     "EPIC_Blood3", "EPIC_Fibro4", "EPIC_GIAB2",
     "ONT_Blood3",  "WGEC_Blood3",  "TWIST_Blood3",  "RRBS_Blood3",
@@ -347,21 +328,10 @@ if (!is.null(opt$epic_path) && file.exists(opt$epic_path)) {
   meth_10x <- extractCovDf(all_mat, threshold = 10, cov_cols = present_cov)
   meth_10x <- meth_10x[, ..present_meth]
 
-  # Rename EPIC columns to consistent format
-  #setnames(meth_10x,
-  #  old = intersect(c("Sample3_blood_EPIC","Sample4_FBK_EPIC","NA24385_HG002"),
-  #                  colnames(meth_10x)),
-  #  new = intersect(c("EPIC_Blood3", "EPIC_Fibro4", "EPIC_GIAB2"),
-  #                  c("EPIC_Blood3", "EPIC_Fibro4", "EPIC_GIAB2")
-  #                  [c("Sample3_blood_EPIC","Sample4_FBK_EPIC","NA24385_HG002")
-  #                    %in% colnames(meth_10x)])
-  #)
-
   tp_epic <- melt(meth_10x, measure.vars = colnames(meth_10x),
                   variable.name = "variable", value.name = "value")
   tp_epic <- tp_epic[!is.na(value)]
 
-  # Split variable into Method and Sample
   tp_epic[, c("Method","Sample") := tstrsplit(variable, "_", fixed = TRUE, keep = 1:2)]
 
   tp_epic[, Group := interaction(Sample, Method, sep = "_")]

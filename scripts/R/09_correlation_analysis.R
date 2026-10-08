@@ -1,39 +1,14 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# MethylBench – Correlation Analysis
+# MethylBench - cross-platform correlation analysis
 # =============================================================================
-# Description:
-#   Computes pairwise Pearson correlations between all methylation platforms
-#   across increasing coverage thresholds. Generates per-sampleset correlation
-#   line plots (Blood, Fibroblast, GIAB) and an extended high-coverage
-#   ONT vs. PacBio vs. TWIST comparison for GIAB1/GIAB2 (Figure 4B),
-#   since these are the three highest-coverage methods assessed.
-#
-#   Revision (Reviewer 1, Minor #4): because methylation levels are bimodal,
-#   genome-wide correlations are dominated by CpGs near 0 or 1. Pairwise
-#   correlations are therefore additionally reported per methylation stratum
-#   (Low: mean beta < 0.2; Intermediate: 0.2-0.8; High: > 0.8). The stratum
-#   is assigned per CpG from the MEAN of the two compared platforms, so that
-#   no single platform's measurement error determines stratum membership.
-#   Because restricting the range of beta-values attenuates Pearson's r by
-#   construction, Spearman's rho and the mean absolute difference (MAD) of
-#   beta-values are reported as well. Outputs:
-#     - Correlation_by_methylation_stratum.tsv (all samples, thresholds, strata)
-#     - Table_S7_intermediate_correlation.tsv   (10x; mean and range per pair)
-#     - SupplFig19A_Blood / B_Fibro / C_GIAB    (single panels, PNG + PDF)
-#
-# Input:
-#   --datadir   Directory containing merged methylation matrices
-#               (Blood_without_EPIC.csv, Fibro_without_EPIC.csv,
-#                GIAB_without_EPIC.csv) as produced by buildMergedMatrix()
-#   --outdir    Output directory for figures
+# Pairwise Pearson correlations of CpG methylation between platforms at
+# increasing coverage thresholds, overall and per methylation stratum.
+# Figure 4; Suppl. Figures 2 and 19; Suppl. Table S7.
 #
 # Usage:
-#   Rscript 03_correlation_analysis.R \
-#     --datadir data/matrices/ \
-#     --outdir  results/figures/
-#
-# Author:  MethylBench – Laufer et al.
+#   Rscript scripts/R/09_correlation_analysis.R --datadir <matrices>/ --outdir results/figures/
+#   (--datadir must contain Blood_, Fibro_ and GIAB_without_EPIC.csv)
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -70,9 +45,6 @@ METHODS_NO_PACBIO <- c("ONT" = "ONT", "WGEC" = "WGEC",
                         "RRBS" = "RRBS", "TWIST" = "TWIST")
 METHODS_PACBIO    <- c("ONT" = "ONT", "WGEC" = "WGEC", "RRBS" = "RRBS",
                         "TWIST" = "TWIST", "PacBio" = "PacBio")
-# Order matters here: combn() on names(METHODS_HIGHCOV) walks pairs in this
-# order, so ONT-PacBio, ONT-TWIST, PacBio-TWIST -- matching the legend order
-# and colors used in the paper's Figure 4B.
 METHODS_HIGHCOV   <- c("ONT" = "ONT", "PacBio" = "PacBio", "TWIST" = "TWIST")
 HIGHCOV_COMPARISON_COLORS <- c(
   "ONT vs PacBio"   = "dodgerblue2",
@@ -83,7 +55,6 @@ COVERAGES         <- c(0, 5, 10, 15)
 COVERAGES_HIGH    <- c(0, 5, 10, 15, 20, 25, 30, 35, 40)
 COV_MAX_PLOT      <- 15
 
-# Shared plot theme
 theme_corr <- function() {
   theme_bw() +
   theme(
@@ -185,7 +156,7 @@ plot_corr <- function(df, ncols, title) {
     theme_corr()
 }
 
-# ---- 5.1 Blood correlations -------------------------------------------------
+# ---- Figure 4A / Suppl. Figure 2: correlation vs. coverage threshold --------
 
 p_blood <- plot_corr(
   corr_blood, ncols = 5,
@@ -196,8 +167,6 @@ ggsave(p_blood,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- 5.2 Fibroblast correlations --------------------------------------------
-
 p_fibro <- plot_corr(
   corr_fibro, ncols = 5,
   title = "Correlation Changes with respect\nto increasing Coverage thresholds"
@@ -206,8 +175,6 @@ ggsave(p_fibro,
   filename = file.path(opt$outdir, "Correlations_Fibro.png"),
   height = 12, width = 14, dpi = 300
 )
-
-# ---- 5.3 GIAB correlations --------------------------------------------------
 
 p_giab <- plot_corr(
   corr_giab, ncols = 2,
@@ -218,7 +185,7 @@ ggsave(p_giab,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- 5.4 High-coverage representative samples (Blood3, Fibro4, GIAB2) -------
+# ---- Representative high-coverage samples (Blood3, Fibro4, GIAB2) -----------
 
 p_highcov <- plot_corr(
   corr_highcov, ncols = 3,
@@ -229,10 +196,7 @@ ggsave(p_highcov,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- 5.5 ONT vs. PacBio vs. TWIST, high coverage (GIAB1 + GIAB2) -----------
-# Reproduces Figure 4B: the three highest-coverage methods assessed
-# (ONT, PacBio, TWIST), compared pairwise across 0-40x coverage thresholds,
-# faceted by GIAB sample. Colors match the paper exactly.
+# ---- Figure 4B: ONT, PacBio and TWIST up to 40x (GIAB) ----------------------
 
 p_ont_twist <- ggplot(
   corr_ont_pacbio_twist,
@@ -257,9 +221,7 @@ ggsave(p_ont_twist,
   height = 12, width = 14, dpi = 300
 )
 
-# =============================================================================
-# 6. Correlation stratified by methylation level (Reviewer 1, Minor #4)
-# =============================================================================
+# ---- Suppl. Figure 19, Suppl. Table S7: correlation per methylation stratum ----
 
 cat("[5/6] Computing correlations per methylation stratum...\n")
 
@@ -273,11 +235,9 @@ STRATUM_LABELS <- c(
   High         = sprintf("High (mean beta > %.1f)", STRATUM_UPPER)
 )
 
-#' Pairwise agreement per methylation stratum.
-#'
-#' Uses the same CpG selection as computeCorrAcrossCoverages() (for cov > 0:
-#' all methods of the sample >= cov via extractCovDf()), so that the "All"
-#' stratum reproduces the values shown in Figure 4 / Supplementary Figure 2.
+# Strata are assigned from the mean beta of the two compared platforms, so that
+# no single platform's measurement error determines stratum membership. The
+# "All" stratum reproduces the correlations of Figure 4.
 computeStratifiedCorr <- function(data, samples, methods, coverages,
                                   lower = STRATUM_LOWER, upper = STRATUM_UPPER) {
   stopifnot(is.data.table(data))
@@ -300,7 +260,6 @@ computeStratifiedCorr <- function(data, samples, methods, coverages,
         ok <- !is.na(x) & !is.na(y)
         x  <- x[ok]; y <- y[ok]
         if (length(x) == 0) next
-        # Guard against percent-scaled input (0-100) -- strata are defined on 0-1
         scale_f <- if (max(c(x, y)) > 1.5) 100 else 1
         m <- (x + y) / (2 * scale_f)
         stratum <- ifelse(m < lower, "Low", ifelse(m > upper, "High", "Intermediate"))
@@ -337,7 +296,7 @@ strat_all <- rbind(strat_blood, strat_fibro, strat_giab)
 
 fwrite(strat_all, file.path(opt$outdir, "Correlation_by_methylation_stratum.tsv"), sep = "\t")
 
-# ---- Summary at the 10x threshold used throughout the paper ----------------
+# ---- Suppl. Table S7 (10x) --------------------------------------------------
 strat_10x <- as.data.table(strat_all)[Coverage == 10]
 table_s7 <- strat_10x[, .(
   n_samples        = .N,
@@ -351,7 +310,7 @@ table_s7 <- strat_10x[, .(
 ), by = .(Tissue, Comparison, Stratum)][order(Tissue, Stratum, Comparison)]
 fwrite(table_s7, file.path(opt$outdir, "Table_S7_intermediate_correlation.tsv"), sep = "\t")
 
-# Sanity check: the "All" stratum must reproduce the Figure 4 correlations
+# Consistency check: "All" stratum vs. Figure 4 correlations.
 chk <- merge(
   as.data.table(strat_blood)[Stratum == "All", .(Sample, Coverage, Comparison, Pearson)],
   as.data.table(corr_blood)[, .(Sample = sub("^_", "", Sample), Coverage, Comparison, Correlation)],
@@ -371,7 +330,7 @@ print(table_s7[Stratum == "Intermediate",
                  frac_pct = round(mean(mean_frac_pct), 1)),
                by = Tissue])
 
-# ---- Single panels for Inkscape (one per tissue) ----------------------------
+# ---- Suppl. Figure 19 (single panels) ---------------------------------------
 cat("[6/6] Plotting stratified correlations...\n")
 
 save_panel <- function(p, name, width, height) {

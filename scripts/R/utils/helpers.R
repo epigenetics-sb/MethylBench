@@ -1,25 +1,10 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# MethylBench – Utility & Helper Functions
+# MethylBench - shared helper functions
 # =============================================================================
-# Description:
-#   Shared helper functions used across all MethylBench analysis scripts.
-#   Covers:
-#     - File readers for all methylation platforms (ONT/modkit, PacBio,
-#       Bismark, EPIC array, samplesheets)
-#     - Vectorized long-format data construction for density/ridge plots
-#       (replaces repetitive rbind-based create_max_* functions)
-#     - Cross-platform Pearson correlation computation
-#     - Shared color palettes
-#
-# NOTE on the original create_max_* functions:
-#   The original implementations contained a systematic bug where the TWIST
-#   coverage filter always used sample index 1 (e.g. TWIST_cov_Blood1) instead
-#   of the correct per-sample index (TWIST_cov_Blood2, Blood3, ...) for all
-#   non-first samples. This is fixed here by constructing the filter mask
-#   programmatically per sample.
-#
-# Author:  MethylBench – Laufer et al.
+# Readers for per-platform methylation calls, matrix construction, coverage
+# filtering, correlation helpers and the shared color scheme. Sourced by all
+# analysis scripts.
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -27,6 +12,10 @@ suppressPackageStartupMessages({
   library(dplyr)
 })
 
+# ---- Readers ----------------------------------------------------------------
+
+# modkit pileup (bedMethyl). Some modkit versions join the last nine fields
+# with spaces instead of tabs; these are split back into 18 columns.
 readBedMethyl <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
@@ -41,10 +30,6 @@ readBedMethyl <- function(path) {
   )
 
   if (ncol(dataset) == 10L) {
-    # Malformed export seen in some GIAB modkit files: the first 9 fields
-    # are properly tab-separated, but the remaining 9 numeric fields got
-    # joined by spaces into a single tab-field instead of also being
-    # tab-separated. Split that last column further on whitespace.
     split_vals <- tstrsplit(dataset[[10]], "\\s+", perl = TRUE)
     if (length(split_vals) != 9L) {
       stop(sprintf(
@@ -71,14 +56,11 @@ readBedMethyl <- function(path) {
   return(dataset)
 }
 
+# pb-CpG-tools combined BED (header lines starting with '#' are skipped).
 readPacBio <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
 
-  # pb-cpg-tools output starts with several "##key=value" metadata lines
-  # (VCF-style), e.g. "##pb-cpg-tools-version=3.0.0". Strip any leading
-  # comment lines before parsing, regardless of how many there are, and
-  # regardless of .bed vs .bed.gz.
   is_gz <- grepl("\\.gz$", path, ignore.case = TRUE)
   cmd <- if (is_gz) {
     sprintf("zcat %s | grep -v '^#'", shQuote(path))
@@ -109,15 +91,52 @@ readPacBio <- function(path) {
   return(dataset)
 }
 
-#' Read a raw Bismark coverage file (.bismark.cov / .bismark.cov.gz), as
-#' produced by coverage2cytosine WITHOUT --merge_CpG. Format is tab-separated,
-#' 6 columns, 1-based single-base coordinates:
-#'   chr  start  end  percentage(0-100)  count_methylated  count_unmethylated
-#' NOTE: start/end are already 1-based -- do NOT apply any +1/-1 shift here.
-#' Because --merge_CpG was not used, the +strand C of a CpG (position N) and
-#' the -strand C (position N+1) appear as two SEPARATE rows; use
-#' mergeCpGStrands() afterwards to combine them into one row per CpG.
-#' @return data.table with columns chr, start, count_meth, count_unmeth.
+# Bismark coverage2cytosine --merge_CpG output (*.merged_CpG_evidence.cov):
+# Returns 0-based starts (position of the CpG)
+readBismarkMergedCpG <- function(path) {
+  stopifnot(is.character(path), length(path) == 1)
+  if (!file.exists(path)) stop(paste("File not found:", path))
+  
+  dataset <- fread(path, header = FALSE, sep = "\t")
+  
+  full_colnames <- c(
+    "chr", "start", "end", "percentage", "count_meth", "count_unmeth"
+  )
+  if (ncol(dataset) != length(full_colnames)) {
+    stop(sprintf(
+      "readBismarkMergedCpG: expected %d tab-separated columns (chr,start,end,percentage,count_meth,count_unmeth), got %d in file: %s",
+      length(full_colnames), ncol(dataset), path
+    ))
+  }
+  colnames(dataset) <- full_colnames
+  
+  width <- dataset$end - dataset$start
+  if (all(width == 1L)) {
+    dataset[, start := start - 1L]
+  } else if (all(width == 2L)) {
+    cat(sprintf(
+      "  [readBismarkMergedCpG] %s: already 0-based (--zero_based), no shift applied\n",
+      basename(path)
+    ))
+  } else {
+    stop(sprintf(
+      "readBismarkMergedCpG: unexpected interval widths in %s (end - start = 1: %d rows, = 2: %d rows, other: %d rows) -- is this a coverage2cytosine --merge_CpG file?",
+      path, sum(width == 1L), sum(width == 2L), sum(!width %in% 1:2)
+    ))
+  }
+  
+  if (anyDuplicated(dataset, by = c("chr", "start"))) {
+    stop(sprintf(
+      "readBismarkMergedCpG: duplicated CpG positions in %s -- strands are not merged (run coverage2cytosine with --merge_CpG).",
+      path
+    ))
+  }
+  
+  dataset[, coverage := count_meth + count_unmeth]
+  return(dataset)
+}
+
+# Bismark coverage file (1-based, one row per strand).
 readBismarkCovRaw <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
@@ -139,30 +158,7 @@ readBismarkCovRaw <- function(path) {
   dataset[, .(chr, start, count_meth, count_unmeth)]
 }
 
-#' Read the lab's custom RRBS .tab format, produced from raw Bismark
-#' .cov.gz via: awk '{print $1,$2,$6+$5,$6,$4/100}'
-#' i.e. columns: chr, start, coverage, count_unmeth, fraction(0-1).
-#' start is untouched from the raw .cov.gz, which is already 1-based -- do
-#' NOT apply any coordinate shift. Like WGEC/TWIST, this is NOT strand-
-#' merged (derived from the same un-merged raw Bismark output) -- follow
-#' with mergeCpGStrands() after computing count_meth.
-#' @return data.table with columns chr, start, count_meth, count_unmeth.
-#' Restrict a wide methylation matrix to CpGs "covered by every platform",
-#' matching the paper's stated exploratory-analysis restriction ("all
-#' analyses were restricted to the common set of CpG sites covered across
-#' platforms"). A CpG counts as covered by a platform if at least one
-#' sample column for that platform is non-NA at that row -- this is
-#' deliberately more lenient than the Tier1/Tier2 10x-coverage consensus
-#' sets used elsewhere in the pipeline, which is appropriate for this
-#' specific exploratory step (see Methods: limma/Wilcoxon on n=146,704
-#' common CpGs, distinct from the later coverage-matched consensus sets).
-#'
-#' @param dt data.table containing the method's sample columns.
-#' @param method_prefixes character vector of method name prefixes (e.g.
-#'   c("EPIC","ONT","WGEC","TWIST","RRBS")); columns are matched by
-#'   `^<prefix>_` (case-insensitive), excluding any `_cov_` columns.
-#' @return logical vector, one per row of dt, TRUE where every prefix has
-#'   at least one non-NA sample column.
+# TRUE for rows where every platform has at least one non-NA sample.
 platformsCoveredMask <- function(dt, method_prefixes) {
   covered <- matrix(TRUE, nrow = nrow(dt), ncol = length(method_prefixes))
   for (i in seq_along(method_prefixes)) {
@@ -178,6 +174,7 @@ platformsCoveredMask <- function(dt, method_prefixes) {
   apply(covered, 1, all)
 }
 
+# Space-separated RRBS table (chr, start, coverage, count_unmeth, fraction).
 readRRBSTab <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
@@ -198,51 +195,21 @@ readRRBSTab <- function(path) {
   dataset[, .(chr, start, count_meth, count_unmeth)]
 }
 
-
-#'
-#' Bismark (without --merge_CpG) reports the +strand C of a CpG dinucleotide
-#' at position N and the -strand C at position N+1 as two independent rows.
-#' A naive "does start-1 exist" check is NOT sufficient to pair them
-#' correctly when CpGs are directly adjacent (e.g. positions N, N+1, N+2 all
-#' present, where N+2 is actually the NEXT CpG's own +strand, not a partner
-#' of N+1) -- that would silently mismatch unrelated CpGs.
-#'
-#' This instead does a greedy left-to-right pairing within each maximal run
-#' of consecutive integer positions (per chromosome): (1st,2nd), (3rd,4th),
-#' etc. If a run has odd length, the trailing element is kept as an
-#' unpaired singleton (rather than merged with an unrelated neighbor) --
-#' this happens when one strand of a CpG had zero coverage and Bismark
-#' therefore never emitted a row for it.
-#'
-#' Validated against a reference sequential implementation across pair/
-#' singleton/run-of-3/run-of-4/run-of-5/multi-chromosome-boundary cases.
-#'
-#' @param dt data.table with columns chr, start, count_meth, count_unmeth
-#'   (one row per Bismark-reported strand-specific cytosine call).
-#' @return data.table with columns chr, start, count_meth, count_unmeth,
-#'   one row per CpG, anchored at the lower (+strand) position.
+# Merges the +/- strand rows of each CpG (adjacent positions) into one row by
+# summing methylated and unmethylated counts.
 mergeCpGStrands <- function(dt) {
   stopifnot(is.data.table(dt))
   dt <- dt[, .(chr, start, count_meth, count_unmeth)]
   setorder(dt, chr, start)
 
-  # Row index within each chromosome (resets at every chr boundary).
   dt[, row_in_chr := seq_len(.N), by = chr]
 
-  # While start increases by exactly 1 per row, (start - row_in_chr) stays
-  # constant -- so this value changes exactly at the boundaries of maximal
-  # runs of consecutive positions. rleid() also always bumps on chr change.
   dt[, run_id := rleid(chr, start - row_in_chr)]
   dt[, row_in_chr := NULL]
 
-  # Within each run, alternate anchor (odd local_idx) / partner (even
-  # local_idx): (1st,2nd) is a pair, (3rd,4th) is the next pair, etc.
   dt[, local_idx := seq_len(.N), by = run_id]
   dt[, is_partner := (local_idx %% 2L == 0L)]
 
-  # For each anchor, look up the immediately following row's counts WITHIN
-  # THE SAME RUN (shift() with by= returns NA at run boundaries, which
-  # correctly identifies an anchor with no partner).
   dt[, partner_meth   := shift(count_meth,   -1L), by = run_id]
   dt[, partner_unmeth := shift(count_unmeth, -1L), by = run_id]
 
@@ -285,6 +252,10 @@ readSampleSheet <- function(path) {
   return(ss)
 }
 
+# ---- Long-format tables -----------------------------------------------------
+
+# Long-format methylation values per sample, method and coverage threshold. For
+# thresholds > 0 a CpG is kept only if all `filter_methods` reach the threshold.
 buildMethLong <- function(data,
                           samples,
                           methods,
@@ -354,21 +325,7 @@ buildMethLong <- function(data,
   return(result)
 }
 
-#' Build a long-format per-CpG coverage table across samples and methods,
-#' analogous to buildMethLong() but reading raw <Method>_cov_<Sample> columns
-#' instead of <Method>_<Sample> methylation fractions.
-#'
-#' @param data data.table containing <Method>_cov_<Sample> columns (e.g. the
-#'   merged CpG-level matrix produced by buildMergedMatrix()).
-#' @param samples character vector of sample labels (e.g. samplesheet$Sample).
-#' @param methods named character vector, names = display labels, values =
-#'   column-name prefixes, e.g. c(ONT="ONT", RRBS="RRBS", WGEC="WGEC",
-#'   TWIST="TWIST", PacBio="PacBio"). A method/sample combination whose
-#'   column doesn't exist (e.g. PacBio for non-GIAB samples) is silently
-#'   skipped, since PacBio is only present for GIAB1/GIAB2.
-#' @return data.table with columns Coverage (numeric, raw per-CpG coverage,
-#'   zero/NA entries dropped), Method (factor, levels = names(methods)),
-#'   Sample (character).
+# Long-format per-CpG coverage (CpGs with coverage > 0).
 buildCovLong <- function(data, samples, methods) {
 
   stopifnot(is.data.table(data))
@@ -383,9 +340,6 @@ buildCovLong <- function(data, samples, methods) {
       cov_col <- paste0(methods[method_label], "_cov_", smp)
 
       if (!cov_col %in% colnames(data)) {
-        # e.g. PacBio_cov_<sample> only exists for GIAB1/GIAB2 -- skip
-        # quietly rather than erroring, mirroring the sparse method
-        # coverage across sample sets (see buildMergedMatrix()).
         next
       }
 
@@ -408,6 +362,9 @@ buildCovLong <- function(data, samples, methods) {
   return(result)
 }
 
+# ---- Correlation ------------------------------------------------------------
+
+# Pearson correlation of methylation values for all method pairs of one sample.
 computePairwiseCorr <- function(data,
                                 methods,
                                 sample,
@@ -460,6 +417,7 @@ computePairwiseCorr <- function(data,
   return(result)
 }
 
+# ---- Colors ----------------------------------------------------------------
 C25 <- c(
   "dodgerblue2", "#E31A1C", "green4", "#6A3D9A", "#FF7F00",
   "black",   "gold1",   "skyblue2", "#FB9A99", "palegreen2",
@@ -478,7 +436,7 @@ METHOD_COLORS <- c(
   "ONT"    = "#D69F00",
   "PacBio" = "#E55E00",
   "EPIC"   = "#009E73",
-  "TWIST"  = "#CC79A7", 
+  "TWIST"  = "#CC79A7",
   "WGEC"   = "purple",
   "RRBS"   = "#0072B2"
 )
@@ -487,32 +445,9 @@ get_colors <- function() {
   return(METHOD_COLORS)
 }
 
-load_plotting_environment <- function() {
-  packages_to_load <- c(
-    "ggplot2", "reshape2", "data.table",
-    "UpSetR", "ComplexUpset"
-  )
-  invisible(lapply(packages_to_load, require, character.only = TRUE))
-}
+# ---- Matrices ---------------------------------------------------------------
 
-load_environment <- function() {
-  packages_to_load <- c(
-    "ggplot2", "reshape2", "data.table",
-    "tidyr",   "dplyr",    "ggridges"
-  )
-  invisible(lapply(packages_to_load, require, character.only = TRUE))
-}
-
-load_environment_diff_meth <- function() {
-  packages_to_load <- c(
-    "ggplot2", "reshape2",      "data.table",
-    "tidyr",   "annotatr",      "dplyr",
-    "ggridges", "limma",        "DMRcaller",
-    "GenomicRanges",            "ComplexHeatmap"
-  )
-  invisible(lapply(packages_to_load, require, character.only = TRUE))
-}
-
+# Rows in which all `cov_cols` reach `threshold`.
 extractCovDf <- function(data, threshold, cov_cols) {
   stopifnot(is.data.table(data))
   stopifnot(is.numeric(threshold), length(threshold) == 1)
@@ -530,6 +465,10 @@ extractCovDf <- function(data, threshold, cov_cols) {
   return(data[mask])
 }
 
+# Merges the per-CpG calls of all platforms for one sample set into a matrix
+# with <Method>_<Sample> (beta, 0-1) and <Method>_cov_<Sample> columns.
+# Coordinates are converted to 1-based; platforms are inner-joined within a
+# sample and samples are outer-joined.
 buildMergedMatrix <- function(samplesheet,
                                sampleset,
                                datadir,
@@ -539,13 +478,6 @@ buildMergedMatrix <- function(samplesheet,
                                bismark_suffix = ".bismark.cov.gz",
                                pacbio_suffix  = ".GRCh38.pbmm2.combined.bed",
                                pacbio_paths   = NULL) {
-  # pacbio_paths: optional named character vector mapping this pipeline's
-  # sample label (e.g. "GIAB1") to the EXACT raw PacBio file path (e.g.
-  # ".../HG001.GRCh38.cpg_pileup.combined.bed"). Use this when the raw
-  # PacBio files use different sample names than the rest of the pipeline
-  # and/or mix compressed (.bed.gz) and uncompressed (.bed) files -- fread()
-  # transparently handles either. If a sample isn't in pacbio_paths, falls
-  # back to the datadir/PacBio/<sample><pacbio_suffix> convention.
 
   stopifnot(is.data.table(samplesheet))
   stopifnot(sampleset %in% c("Blood", "Fibroblast", "GIAB"))
@@ -573,14 +505,11 @@ buildMergedMatrix <- function(samplesheet,
         dt[, start := start + 1L]  # 0-based BED -> 1-based
         dt <- dt[, .(coord = paste0(chr,":",start),
                      cov   = Nvalid_cov,
-                     meth  = fraction_mod / 100)]  # fraction_mod is 0-100
+                     meth  = fraction_mod / 100)]
 
       } else if (m %in% c("RRBS","WGEC","TWIST")) {
         path <- file.path(datadir, m, paste0(smp, bismark_suffix))
         if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
-        # Raw Bismark .cov.gz is already 1-based -- NO coordinate shift.
-        # It also reports +/- strand of each CpG as separate rows, so
-        # these must be merged before computing per-CpG methylation.
         dt_raw <- readBismarkCovRaw(path)
         dt_cpg <- mergeCpGStrands(dt_raw)
         cov_total <- dt_cpg$count_meth + dt_cpg$count_unmeth
@@ -644,6 +573,8 @@ buildMergedMatrix <- function(samplesheet,
   return(invisible(merged))
 }
 
+# Pairwise correlations per sample across coverage thresholds; at each threshold
+# all methods of the sample must reach it.
 computeCorrAcrossCoverages <- function(data,
                                         samples,
                                         methods,
@@ -683,9 +614,10 @@ computeCorrAcrossCoverages <- function(data,
   return(result)
 }
 
-# Colored singleton ("only X") intersections for ComplexUpset, created only
-# for singletons that are actually displayed (>= min_size), so that no query
-# refers to an absent intersection.
+# ---- UpSet helpers ----------------------------------------------------------
+
+# Colors the platform-exclusive intersections of a ComplexUpset plot; only for
+# intersections that are actually displayed (>= min_size).
 singleton_queries <- function(df, sets, colors, min_size,
                               annotation = "Intersection size") {
   m <- as.matrix(df[, sets, drop = FALSE]) > 0

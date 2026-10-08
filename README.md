@@ -145,7 +145,7 @@ The analysis (scripts 08–15) needs **five methylation matrices** in one direct
 
 **Naming rules:**
 
-- `<Method>` ∈ `ONT`, `WGEC`, `TWIST`, `RRBS`, `PacBio`, `EPIC`, case-sensitive. Legacy `WGBS_*` columns are renamed to `WGEC_*` automatically by script 13 only, so please use `WGEC`.
+- `<Method>` ∈ `ONT`, `WGEC`, `TWIST`, `RRBS`, `PacBio`, `EPIC` (case-sensitive).
 - `<Sample>` ∈ `Blood1`–`Blood5`, `Fibro1`–`Fibro5`, `GIAB1` (HG001), `GIAB2` (HG002).
 - **Pairing:** the paired models (`~ subject + group`) take the subject from the trailing number, so `Blood<i>` and `Fibro<i>` **must** come from the same individual.
 

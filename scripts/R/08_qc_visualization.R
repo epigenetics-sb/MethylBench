@@ -1,25 +1,16 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# MethylBench – QC Visualization
+# MethylBench - quality control and coverage
 # =============================================================================
-# Description:
-#   Generates QC figures from cpg_stats and qc_stats summary tables.
-#   Produces: Overlapping CpGs, Mean Methylation, Mean Coverage,
-#             ONT Genomic Coverage, ONT Bases Sequenced,
-#             Mean Coverage per Method, Read Length, Unique Reads
-#
-# Input:
-#   --cpg_stats   cpg_stats_methylbench.tab  (from 01_generate_cpg_stats.R)
-#   --qc_stats    qc_stats_methylbench.tab   (manually compiled)
-#   --outdir      Output directory for figures
+# QC metrics per sample and platform (coverage, mean methylation, overlapping
+# CpGs, read length, unique reads) and, with --all_path, per-CpG coverage
+# uniformity (coverage normalized to the sample mean; density, ECDF and CV).
+# Figure 3; Suppl. Figure 16 and Suppl. Table S6.
 #
 # Usage:
-#   Rscript 02_qc_visualization.R \
-#     --cpg_stats data/stats/cpg_stats_methylbench.tab \
-#     --qc_stats  data/stats/qc_stats_methylbench.tab \
-#     --outdir    results/figures/
-#
-# Author:  MethylBench – Laufer et al.
+#   Rscript scripts/R/08_qc_visualization.R --cpg_stats cpg_stats_methylbench.tab \
+#     --qc_stats qc_stats_methylbench.tab --all_path ALL_without_EPIC.csv \
+#     --outdir results/figures/
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -51,7 +42,7 @@ option_list <- list(
   make_option("--all_path",
     type    = "character",
     default = NULL,
-    help    = "Optional: path to the merged CpG-level matrix (e.g. ALL.csv / ALL_without_EPIC.csv) with <Method>_cov_<Sample> columns, for the per-CpG coverage uniformity figure (Reviewer 1, Minor #2). Sample/tissue (Blood/Fibroblast/GIAB) are derived from the <Method>_cov_<Sample> column names themselves, same convention as the rest of the pipeline -- no samplesheet needed. Skipped entirely if not provided.",
+    help    = "Optional: merged CpG-level matrix with <Method>_cov_<Sample> columns (e.g. ALL_without_EPIC.csv) for the per-CpG coverage uniformity analysis (Suppl. Figure 16, Suppl. Table S6). Skipped if not provided.",
     metavar = "FILE"
   )
 )
@@ -80,7 +71,7 @@ stats[, Sampleset_numbers := ifelse(
 SAMPLESET_ORDER <- c("Blood\n(n=5)", "Fibroblast\n(n=5)", "GIAB\n(n=2)")
 stats[, Sampleset_numbers := factor(Sampleset_numbers, levels = SAMPLESET_ORDER)]
 
-# ---- 3.1 Overlapping CpGs per coverage filter -------------------------------
+# ---- Overlapping CpGs per coverage filter -----------------------------------
 cat("[1/10] Plotting Overlapping CpGs...\n")
 
 to.plot <- melt(
@@ -119,7 +110,7 @@ ggsave(p_cpg,
   height = 10, width = 10, dpi = 300
 )
 
-# ---- 3.2 Mean Methylation ------------
+# ---- Mean Methylation -------------------------------------------------------
 cat("[2/10] Plotting Mean Methylation...\n")
 
 p_meth_focused <- ggplot(
@@ -150,7 +141,7 @@ ggsave(p_meth_focused,
   height = 10, width = 10, dpi = 300
 )
 
-# ---- 3.3 Mean Methylation with coverage filter comparison -------------------
+# ---- Mean Methylation with coverage filter comparison -----------------------
 cat("[3/10] Plotting Mean Methylation (coverage comparison)...\n")
 
 uno <- cbind(stats[, .(Sample, Method, Mean_meth = Mean_meth_overlapped,
@@ -193,7 +184,7 @@ ggsave(p_meth_cov,
   height = 10, width = 10, dpi = 300
 )
 
-# ---- 3.4 Mean CpG Coverage per sample and method ----------------------------
+# ---- Mean CpG Coverage per sample and method --------------------------------
 cat("[4/10] Plotting Mean CpG Coverage...\n")
 
 p_cov <- ggplot(stats, aes(x = Sample, y = Mean_Cov, fill = Method)) +
@@ -230,7 +221,7 @@ ggsave(p_cov,
   height = 10, width = 10, dpi = 300
 )
 
-# ---- 3.5 ONT Mean Genomic Coverage ------------------------------------------
+# ---- ONT Mean Genomic Coverage ----------------------------------------------
 cat("[5/10] Plotting ONT Mean Genomic Coverage...\n")
 
 p_ont_genomic <- ggplot(
@@ -265,7 +256,7 @@ ggsave(p_ont_genomic,
   height = 10, width = 15, dpi = 300
 )
 
-# ---- 3.6 ONT Total Bases Sequenced ------------------------------------------
+# ---- ONT Total Bases Sequenced ----------------------------------------------
 cat("[6/10] Plotting ONT Total Bases Sequenced...\n")
 
 ont_bases <- stats[
@@ -305,7 +296,7 @@ ggsave(p_ont_bases,
   height = 10, width = 15, dpi = 300
 )
 
-# ---- 3.7 Mean CpG Coverage per method (averaged over all samples) -----------
+# ---- Mean CpG Coverage per method (averaged over all samples) ---------------
 cat("[7/10] Plotting Mean CpG Coverage per Method...\n")
 
 df_means <- stats[, .(Mean_Cov_overall = mean(Mean_Cov, na.rm = TRUE)), by = Method]
@@ -338,7 +329,7 @@ ggsave(p_mean_mean,
   height = 10, width = 15, dpi = 300
 )
 
-# ---- 3.8 Mean Read Length ---------------------------------------------------
+# ---- Mean Read Length -------------------------------------------------------
 cat("[8/10] Plotting Mean Read Length...\n")
 
 p_readlen <- ggplot(
@@ -371,7 +362,7 @@ ggsave(p_readlen,
   height = 10, width = 10, dpi = 300
 )
 
-# ---- 3.9 Unique Reads (excluding PacBio) ------------------------------------
+# ---- Unique Reads (excluding PacBio) ----------------------------------------
 cat("[9/10] Plotting Unique Reads...\n")
 
 p_unique <- ggplot(
@@ -402,33 +393,16 @@ ggsave(p_unique,
   height = 10, width = 10, dpi = 300
 )
 
-# ---- 3.10 Coverage uniformity across methods (Reviewer 1, Minor #2) --------
-# Addresses: "Short-read methods generally achieved a more uniform CpG
-# coverage" (Section 2.1) was not directly supported by Figure 3, which
-# only shows mean coverage per sample/method, not the per-CpG distribution.
-# Optional -- only runs if --all_path was provided.
+# ---- Per-CpG coverage uniformity (Suppl. Figure 16, Suppl. Table S6) --------
 
-#' Produce per-CpG coverage density + ECDF plots (normalized, colored by
-#' method, faceted by tissue) plus a per-method/tissue coefficient-of-
-#' variation (CV) summary table, as a quantitative uniformity metric.
-#'
-#' Tissue (Blood/Fibroblast/GIAB) and the sample list are derived directly
-#' from the <Method>_cov_<Sample> column names in all_dt -- the same
-#' Blood1..5/Fibro1..5/GIAB1..2 naming convention used throughout the rest
-#' of the pipeline -- rather than requiring a separate samplesheet file.
-#'
-#' @param all_dt merged CpG-level data.table with <Method>_cov_<Sample> cols.
-#' @param methods_vec named character vector of method prefixes, as used
-#'   elsewhere in the pipeline, e.g.
-#'   c(ONT="ONT", RRBS="RRBS", WGEC="WGEC", TWIST="TWIST", PacBio="PacBio")
-#' @param out_dir output directory for the figures/summary table.
+# Coverage is normalized to each sample's mean so that uniformity, not depth,
+# is compared; CV = SD / mean per sample, averaged per platform and tissue.
 plot_coverage_uniformity <- function(all_dt,
                                       methods_vec = c(ONT = "ONT", RRBS = "RRBS",
                                                        WGEC = "WGEC", TWIST = "TWIST",
                                                        PacBio = "PacBio"),
                                       out_dir = "results/figures/") {
 
-  # ---- Derive samples + tissue from <Method>_cov_<Sample> column names -----
   cov_cols <- grep("_cov_", colnames(all_dt), value = TRUE)
   samples  <- unique(sub(".*_cov_", "", cov_cols))
   if (length(samples) == 0) {
@@ -443,22 +417,15 @@ plot_coverage_uniformity <- function(all_dt,
     NA_character_
   }
 
-  # ---- Long-format per-CpG coverage, via helpers.R's buildCovLong() --------
   cov_long <- buildCovLong(all_dt, samples = samples, methods = methods_vec)
 
   cov_long[, Tissue := vapply(Sample, tissue_of, character(1))]
   tissue_levels <- intersect(c("Blood", "Fibroblast", "GIAB"), unique(cov_long$Tissue))
   cov_long[, Tissue := factor(Tissue, levels = tissue_levels)]
 
-  # ---- Normalize per Sample x Method: methods differ hugely in mean depth
-  #      (e.g. WGEC 28-30M CpGs vs. RRBS/TWIST 1-4M), so per-CpG coverage
-  #      must be compared relative to each sample/method's own mean to
-  #      assess UNIFORMITY rather than raw depth -----------------------------
   cov_long[, mean_cov_sample := mean(Coverage), by = .(Sample, Method)]
   cov_long[, NormCoverage    := Coverage / mean_cov_sample]
 
-  # ---- Quantitative uniformity metric: CV per Sample x Method, averaged
-  #      per Tissue x Method (lower CV = more uniform per-CpG coverage) -----
   cv_summary <- cov_long[
     , .(cv = sd(Coverage) / mean(Coverage)),
     by = .(Sample, Tissue, Method)

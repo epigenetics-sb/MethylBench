@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-
-# MethylBench - ONT Quality Control
-# Tool:    ToulligQC
-# Input:   BAM files per ONT sample
-# Output:  HTML report + data report per sample
-# Usage:   bash 01_toulligqc.sh <sample_id> <bam_file> <output_dir>
+# =============================================================================
+# MethylBench - ONT quality control (ToulligQC)
+# =============================================================================
+# HTML and data report per ONT sample (input for 05_parse_toulligqc.py).
+# Environment: methylbench-ont
+#
+# Usage:
+#   bash scripts/bash/02_toulligqc.sh <sample_id> <bam_file> <output_dir>
+# =============================================================================
 
 set -euo pipefail
 

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-
-# MethylBench - Short-Read Methylation Preprocessing
-# Pipeline: nf-core/methylseq v1.0.0
-# Covers:   WGEC, TWIST (standard mode), RRBS (--rrbs flag)
-# Profile:  Singularity (no local tool installation required)
-# Usage:    bash 04_methylseq.sh <mode> <samplesheet> <output_dir>
-#           mode: "rrbs" for adding the extra rrbs flag to the nextflow pipeline
+# =============================================================================
+# MethylBench - short-read preprocessing (nf-core/methylseq 1.0.0)
+# =============================================================================
+# WGEC and TWIST (standard mode) and RRBS (--rrbs); runs with the Singularity
+# profile, requires Nextflow and Singularity/Apptainer on the system.
+#
+# Usage:
+#   bash scripts/bash/04_methylseq.sh <wgec|twist|rrbs> <samplesheet.csv> <output_dir>
+# =============================================================================
 
 set -euo pipefail
 

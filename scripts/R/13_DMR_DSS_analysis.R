@@ -1,154 +1,17 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# MethylBench – Differential Methylation Analysis, Tier 1/Tier 2 (Section 2.5.2
-# and 2.5.3): Figure 8, Figure 9, Supplementary Figure 15
+# MethylBench - primary differential methylation analysis (DSS + DMRcate)
 # =============================================================================
-# Description:
-#   Single source of truth for the primary (coverage-matched consensus set)
-#   differential methylation analysis:
-#     - Builds the Tier 1 (sequencing methods only) and Tier 2 (additionally
-#       intersected with EPIC) consensus CpG sets and the corresponding
-#       BSseq objects.
-#     - Subject-paired single-CpG (DML) testing for the four sequencing
-#       methods (DSS Beta-Binomial via DMLfit.multiFactor/DMLtest.multiFactor)
-#       and for EPIC (limma on M-values), both with a `~ subject + group`
-#       design.
-#     - Region-level DMRs via DMRcate, fed directly from the paired per-CpG
-#       test statistics above.
-#     - Figure 8 (CpG-level concordance): pairwise Delta-beta scatter, UpSet,
-#       exclusivity, hyper/hypo barplot, Jaccard heatmap, coverage
-#       distribution on the consensus set.
-#     - Figure 9A/B/D (region-level concordance): DMR counts, width, pairwise
-#       Jaccard. Figure 9C (CpG-structural context vs. tested background) is
-#       produced by 15_annotation_enrichment_background.R --level DMR.
-#     - Supplementary Table S2: run with --unpaired (design ~ group) into a
-#       separate --datadir; only tables are written.
-#     - Supplementary Figure 15: threshold-free rank-recovery (ROC/AUC of
-#       each sequencing platform's continuous DMC score against every other
-#       platform's called DMCs as reference).
-#
-# CHANGELOG (post-review consolidation, Reviewer 1 / Major Comments 2 & 3):
-#   This script previously only covered the DSS side of the analysis and
-#   fed an internal, unpaired DSS::callDMR() side-computation (its own
-#   dmr_DSS_counts/width/Jaccard figures). A separate, hardcoded-path,
-#   not-yet-reviewed script turned out to be the actual source of Figure 8,
-#   Figure 9 (via DMRcate) and the primary-stage EPIC-on-M-values limma
-#   analysis, independently rebuilding the SAME Tier 1/Tier 2 consensus and
-#   BSseq objects a second time. Both have now been merged into this single
-#   script, chronologically ordered to match how Section 2.5 of the
-#   manuscript reads, so there is exactly one place that defines the Tier
-#   1/Tier 2 consensus, one paired DML/DMC computation per platform, and
-#   one script producing everything derived from it (Figures 8 and 9,
-#   Supplementary Figure 15). 15_DMR_DMRcate_analysis.R independently
-#   recomputed the same consensus/BSseq construction and an UNPAIRED
-#   DSS::DMLtest() + DMRcate a third time (writing to the same
-#   BSseq_Tier{1,2}.rds / Tier{1,2}_DML_significant_<method>.tsv filenames
-#   as this script, which would silently overwrite one another if both
-#   were ever run into the same --datadir) and has been removed.
-#
-#   1) FIXED missing subject-level pairing:
-#      - Sequencing methods: single-CpG testing now uses
-#        DSS::DMLfit.multiFactor()/DMLtest.multiFactor() with a
-#        `~ subject + group` design (run_dss_tissue_paired()), subject IDs
-#        parsed from the BSseq sample names (get_subject_id_dss()), not
-#        assumed from column position -- same principle as the PCA
-#        label-desync fix in 11_pca.R and the limma fix in
-#        limma_diff_meth.R.
-#      - EPIC (Tier 2 only, no read counts available for a Beta-Binomial
-#        model): differential methylation is assessed with limma on
-#        M-values (beta2m(), clipped near 0/1), design `~ subject + group`,
-#        exactly mirroring limma_diff_meth.R's fix. This is the primary-
-#        analysis EPIC step described in the Methods ("EPIC was analyzed
-#        using limma on M-values"), as distinct from the exploratory,
-#        beta-scale, all-platform comparison in limma_diff_meth.R /
-#        12_differential_methylation.R (Section 2.5.1).
-#   2) REMOVED the old unpaired DSS::DMLtest()+callDMR() side-analysis and
-#      its dmr_DSS_counts/width/Jaccard outputs. DSS::callDMR() only
-#      accepts the two-group DMLtest() object (it needs the smoothed
-#      mu1/mu2/diff/areastat fields that only that function produces) and
-#      cannot be given the paired DMLtest.multiFactor() result at all, so
-#      it could only ever be run unpaired -- and its outputs did not
-#      correspond to any figure or supplementary figure in the manuscript.
-#      Region-level DMRs are now called exclusively via DMRcate (see
-#      below), which has no such limitation: it consumes a generic per-CpG
-#      stat/p-value/effect-size table regardless of which model produced
-#      it, so feeding it the paired test directly makes Figure 9 paired
-#      with no workaround needed. Do not describe region-level DMR calling
-#      in the manuscript as unpaired -- only DSS's own two-group DMR
-#      caller (no longer used here) had that limitation.
-#   3) FIXED WGBS/WGEC naming throughout the merged-in sections (the
-#      donor script pre-dated the repository-wide rename); a compatibility
-#      shim renames legacy "WGBS_*" input columns to "WGEC_*" if present.
-#   4) REMOVED the CpG-/genic-feature annotation composition that the donor
-#      script also computed (background-free, partial duplicate of
-#      15_annotation_enrichment_background.R); 15 is the single,
-#      background-corrected source for that analysis, including Figure 9C
-#      (--level DMR).
-#   5) REMOVED a broken Tier-2 "Sequencing_withEPIC" Delta-beta scatter
-#      call from the donor script (its DML list never carried an "EPIC"
-#      entry, so it silently plotted only the four sequencing methods
-#      under a misleading label; it also did not correspond to any panel
-#      in the manuscript -- Figure 8A is Tier 1 only, six platform pairs;
-#      EPIC vs. TWIST is Figure 7B, from 12_differential_methylation.R).
-#   6) Hardcoded absolute paths in the donor script replaced with the
-#      --outdir/--datadir arguments already used throughout this script.
-#
-#   ACTION ITEM (not addressed here): 14_downsampling_sensitivity.R keeps
-#   its own local, unpaired run_dss_tissue()/call_dss_dmr() copies as its
-#   "before" baseline (it does not import from this script). For full
-#   consistency with the now fully paired Tier 1 analysis here, it should
-#   be updated to depth-match against the paired model instead. Left as-is
-#   for now since it directly answers a separate reviewer comment on its
-#   own terms.
-#
-#   RENUMBERING: this script was previously 14_DMR_DSS_analysis.R. The
-#   exploratory-stage, single-hierarchy, no-background 13_annotation.R
-#   (Reviewer 1's Major Comment 3) has been retired -- its per-method BED
-#   output was consumed only by 17_annotation_enrichment_background.R,
-#   which has been rewritten to read Tier 1/Tier 2 DMC/consensus files
-#   directly from this script's --datadir instead (fixing an additional,
-#   previously unnoticed scope mismatch: it had compared exploratory-stage
-#   significant DMCs against a Tier 1/2 background). With 13_annotation.R
-#   gone, every subsequent script shifts down by one number: this script
-#   14 -> 13, 16_downsampling_sensitivity.R -> 14, and
-#   17_annotation_enrichment_background.R -> 15.
-#
-# Input:
-#   --seq_path      Path to the sequencing-only matrix (ALL_without_EPIC.csv).
-#                   Used for the Tier 1 consensus, which must NOT be restricted
-#                   to EPIC probe positions.
-#   --all_path      Path to the matrix with sequencing methods AND EPIC
-#                   (ALL.csv). Used for the Tier 2 consensus and the EPIC
-#                   analysis. If --seq_path is omitted, this file is used for
-#                   both tiers (legacy behaviour; Tier 1 is then effectively
-#                   restricted to EPIC positions and a warning is printed).
-#
-#   Column naming convention:
-#     EPIC_Blood1..n, EPIC_Fibro1..n
-#     ONT_Blood1..n,  ONT_Fibro1..n
-#     TWIST_Blood1..n, TWIST_Fibro1..n
-#     WGEC_Blood1..n, WGEC_Fibro1..n
-#     RRBS_Blood1..n, RRBS_Fibro1..n
-#     ONT_cov_Blood1..n, ...
-#     WGEC_cov_Blood1..n, ...
-#
-# Output:
-#   --outdir        Directory for figures (Figure 8, Figure 9, Supplementary
-#                   Figure 15 panels).
-#   --datadir       Directory for DML/DMC/DMR tables and intermediate RDS
-#                   files (BSseq_Tier{1,2}.rds, Tier{1,2}_consensus_CpGs.tsv,
-#                   Tier{1,2}_DML_<method>.tsv [full paired test],
-#                   Tier{1,2}_DML_significant_<method>.tsv [called DMCs],
-#                   Tier2_EPIC_* [paired EPIC limma-on-M-values results]).
+# Builds the Tier 1 (sequencing platforms) and Tier 2 (+ EPIC) consensus CpG
+# sets, tests Blood vs. Fibroblast per platform with a paired Beta-Binomial
+# model (DSS; EPIC: paired limma on M-values), calls DMRs with DMRcate and
+# summarizes cross-platform concordance.
+# Figures 8, 9A/B/D; Suppl. Figures 12-15; with --unpaired: Suppl. Table S2.
 #
 # Usage:
 #   Rscript scripts/R/13_DMR_DSS_analysis.R \
-#     --seq_path    data/matrices/ALL_without_EPIC.csv \
-#     --all_path    data/matrices/ALL.csv \
-#     --outdir      results/figures/ \
-#     --datadir     results/dmr_dss/
-#
-# Author: MethylBench – Laufer et al.
+#     --seq_path ALL_without_EPIC.csv --all_path ALL.csv \
+#     --outdir results/figures/ --datadir results/dmr_dss/ [--unpaired]
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -287,20 +150,13 @@ METHOD_COLORS      <- METHOD_COLORS_EPIC[c("ONT", "TWIST", "WGEC", "RRBS")]
 
 TISSUES <- c("Blood", "Fibro")
 
+# ---- 1. Load matrices -------------------------------------------------------
+
 cat("[1/8] Loading methylation matrices...\n")
 
 load_matrix <- function(path, label) {
   cat(sprintf("  Reading %s matrix: %s\n", label, path))
   df <- fread(path, header = TRUE, sep = ",", na.strings = "NA")
-
-  # --- WGBS -> WGEC compatibility shim --------------------------------------
-  # Guards against an input matrix that still uses the legacy "WGBS_*"
-  # column naming from before the repository-wide WGEC rename.
-  wgbs_cols <- grep("^WGBS(_cov)?_(Blood|Fibro)[0-9]+$", colnames(df), value = TRUE)
-  if (length(wgbs_cols) > 0) {
-    cat(sprintf("  Renaming %d legacy WGBS_* column(s) to WGEC_*...\n", length(wgbs_cols)))
-    setnames(df, wgbs_cols, sub("^WGBS", "WGEC", wgbs_cols))
-  }
 
   missing_coord_cols <- setdiff(c("chr", "start"), colnames(df))
   if (length(missing_coord_cols) > 0) {
@@ -313,13 +169,10 @@ load_matrix <- function(path, label) {
   df
 }
 
-# Tier 1 input: sequencing-only matrix (falls back to --all_path, see above)
 seq_df <- load_matrix(if (SEPARATE_TIER1_INPUT) opt$seq_path else opt$all_path,
                       if (SEPARATE_TIER1_INPUT) "Sequencing-only (Tier 1)" else "Combined (Tier 1 + 2)")
 
-# -------------------------------------------------------------------------
-# Helper functions
-# -------------------------------------------------------------------------
+# ---- Helper functions -------------------------------------------------------
 
 get_meth_cols <- function(df, method, tissue) {
   prefix <- METHOD_PREFIX[[method]]
@@ -331,6 +184,7 @@ get_cov_cols <- function(df, method, tissue) {
   grep(paste0("^", prefix, "_cov_", tissue, "[0-9]+$"), colnames(df), value = TRUE)
 }
 
+# CpGs with coverage >= min_cov in >= min_samples samples of one tissue.
 get_passing_cpgs_seq <- function(df, method, tissue,
                                  min_cov = MIN_COV, min_samples = MIN_SAMPLES) {
   cov_cols <- get_cov_cols(df, method, tissue)
@@ -353,6 +207,7 @@ get_passing_cpgs_epic <- function(df, tissue, min_samples = MIN_SAMPLES) {
   df$cpg_id[pass]
 }
 
+# BSseq object per platform and tissue; methylated counts = round(beta * coverage).
 make_bsseq_from_combined <- function(df, method, tissue) {
   beta_cols <- get_meth_cols(df, method, tissue)
   cov_cols  <- get_cov_cols(df, method, tissue)
@@ -383,14 +238,8 @@ make_bsseq_from_combined <- function(df, method, tissue) {
   )
 }
 
-#' Parse subject/individual ID directly from a sample/column name (e.g.
-#' "ONT_Blood3" -> "3", "EPIC_Fibro3" -> "3"). Blood/Fibro samples sharing
-#' a trailing number are assumed to come from the same individual (matched
-#' sampling; see Methods). Deriving this from the actual names, rather than
-#' assuming blood/fibro samples line up positionally, means pairing cannot
-#' silently break if sample order changes upstream -- same principle as the
-#' PCA label-desync fix in 11_pca.R and get_subject_id() in
-#' limma_diff_meth.R.
+# Subject ID = trailing number of the sample name (Blood<i> and Fibro<i> are
+# the same individual).
 get_subject_id <- function(sample_names) {
   m  <- regmatches(sample_names, regexec("(?:Blood|Fibro)([0-9]+)$", sample_names))
   ok <- lengths(m) == 2
@@ -401,11 +250,8 @@ get_subject_id <- function(sample_names) {
   vapply(m, `[[`, character(1), 2)
 }
 
-#' Per-CpG mean-methylation difference (Blood - Fibro), computed directly
-#' from the raw M/Cov counts of a combined BSseq object. This is the
-#' effect-size companion to the paired DMLtest.multiFactor() p-values,
-#' since that function tests significance but does not itself report a
-#' delta-beta-like effect size.
+# Delta beta (Blood - Fibro) from raw counts; DMLtest.multiFactor reports no
+# effect size.
 compute_delta_beta_bsseq <- function(bs_combined, blood_samples, fibro_samples) {
   M    <- getCoverage(bs_combined, type = "M")
   Cov  <- getCoverage(bs_combined, type = "Cov")
@@ -415,17 +261,8 @@ compute_delta_beta_bsseq <- function(bs_combined, blood_samples, fibro_samples) 
     rowMeans(beta[, fibro_samples, drop = FALSE], na.rm = TRUE)
 }
 
-#' Subject-paired single-CpG DML test (design ~ subject + group).
-#' DSS::DMLtest() only supports a plain two-group comparison with no
-#' covariate argument; DSS::DMLfit.multiFactor()/DMLtest.multiFactor()
-#' support an arbitrary design formula, so subject pairing is added here,
-#' mirroring the `~ subject + group` fix in limma_diff_meth.R.
-#'
-#' NOTE: the returned test data frame (chr, pos, stat, pvals, fdrs) has no
-#' smoothed mu1/mu2/diff/areastat fields, so it cannot be passed to
-#' DSS::callDMR() -- see the CHANGELOG. Region-level DMRs are instead
-#' called from these per-CpG statistics via DMRcate (dss_to_cpgannotated()/
-#' run_dmrcate() below), which has no such restriction.
+# Paired Beta-Binomial test (design ~ subject + group, moving-average smoothing
+# over 500 bp). --unpaired drops the subject term.
 run_dss_tissue_paired <- function(bs_blood, bs_fibro) {
   blood_samples <- sampleNames(bs_blood)
   fibro_samples <- sampleNames(bs_fibro)
@@ -453,12 +290,7 @@ run_dss_tissue_paired <- function(bs_blood, bs_fibro) {
   test
 }
 
-#' Build a DMRcate CpGannotated object from a generic per-CpG test-statistic
-#' table. DMRcate does not care which model produced stat/rawpval/diff --
-#' unlike DSS::callDMR(), it has no requirement that the input come from an
-#' unpaired two-group DMLtest(). This is what makes it possible to feed it
-#' the paired sequencing test (chr/pos/stat/pvals/delta_beta/fdrs) and the
-#' paired EPIC limma-on-M-values test on equal footing.
+# DMRcate input from any per-CpG statistic (paired DSS or paired limma).
 make_cpgannotated <- function(chr, pos, stat, rawpval, diff, fdr, ids = NULL) {
   gr <- GRanges(
     seqnames = chr,
@@ -484,13 +316,6 @@ dss_test_to_cpgannotated <- function(test_df) {
 
 run_dmrcate <- function(cpg_ann, method_label, lambda = LAMBDA, C = C_PARAM, min_cpgs = MIN_CPGS) {
   cat(sprintf("  [%s] DMRcate...\n", method_label))
-  # Both dmrcate() and extractRanges() are wrapped together: dmrcate() can
-  # complete successfully ("Demarcating regions... Done!") while producing
-  # zero valid regions -- e.g. when there are too few significant CpGs to
-  # form any cluster meeting min.cpgs. In that case extractRanges() crashes
-  # with an unhandled "'data' must be of a vector type, was 'NULL'" error
-  # instead of returning an empty result, so it must be caught here too
-  # rather than treating it as a fatal pipeline error.
   dmr_gr <- tryCatch(
     {
       dmr <- dmrcate(cpg_ann, lambda = lambda, C = C, min.cpgs = min_cpgs)
@@ -514,6 +339,7 @@ jaccard_generic <- function(a, b) {
   length(intersect(a, b)) / length(union(a, b))
 }
 
+# Base-pair-weighted Jaccard index of two DMR sets.
 jaccard_dmr <- function(gr1, gr2) {
   if (is.null(gr1) || is.null(gr2) || length(gr1) == 0 || length(gr2) == 0) return(NA_real_)
   gr1 <- GenomicRanges::reduce(gr1); gr2 <- GenomicRanges::reduce(gr2)
@@ -536,9 +362,7 @@ write_jaccard <- function(mat, path) {
   fwrite(as.data.table(mat, keep.rownames = "Method"), path, sep = "\t")
 }
 
-# -------------------------------------------------------------------------
-# 2. Determine consensus CpG sets
-# -------------------------------------------------------------------------
+# ---- 2. Determine consensus CpG sets ----------------------------------------
 
 cat("[2/8] Determining consensus CpG sets...\n")
 
@@ -553,11 +377,11 @@ for (method in names(METHOD_PREFIX)) {
   passing_cpgs[[method]] <- both_pass
 }
 
+# Tier 1: CpGs passing in both tissues on all four sequencing platforms.
+# Tier 2: Tier 1 CpGs that additionally pass for EPIC.
 consensus_tier1 <- Reduce(intersect, passing_cpgs[names(METHOD_PREFIX)])
 combined_tier1  <- seq_df[seq_df$cpg_id %in% consensus_tier1]
 
-# Tier 2 input: matrix with EPIC (ALL.csv). Free the (large) sequencing-only
-# matrix first if it is a separate file.
 if (SEPARATE_TIER1_INPUT) {
   rm(seq_df); invisible(gc())
   epic_df <- load_matrix(opt$all_path, "Sequencing + EPIC (Tier 2)")
@@ -573,7 +397,6 @@ cat(sprintf("  [EPIC] Blood: %d | Fibro: %d | Blood ∩ Fibro: %d\n",
             length(epic_blood_pass), length(epic_fibro_pass), length(epic_both_pass)))
 passing_cpgs[["EPIC"]] <- epic_both_pass
 
-# Tier 2 = Tier 1 consensus restricted to CpGs that also pass on EPIC
 consensus_tier2 <- intersect(consensus_tier1, passing_cpgs[["EPIC"]])
 combined_tier2  <- epic_df[epic_df$cpg_id %in% consensus_tier2]
 rm(epic_df); invisible(gc())
@@ -596,9 +419,7 @@ stopifnot(
 fwrite(data.table(cpg_id = consensus_tier1), file.path(opt$datadir, "Tier1_consensus_CpGs.tsv"), sep = "\t")
 fwrite(data.table(cpg_id = consensus_tier2), file.path(opt$datadir, "Tier2_consensus_CpGs.tsv"), sep = "\t")
 
-# -------------------------------------------------------------------------
-# 3. Build BSseq objects
-# -------------------------------------------------------------------------
+# ---- 3. Build BSseq objects -------------------------------------------------
 
 cat("[3/8] Building BSseq objects...\n")
 
@@ -618,16 +439,14 @@ for (method in names(METHOD_PREFIX)) {
 saveRDS(bsseq_t1, file.path(opt$datadir, "BSseq_Tier1.rds"))
 saveRDS(bsseq_t2, file.path(opt$datadir, "BSseq_Tier2.rds"))
 
-# -------------------------------------------------------------------------
-# 4. Paired DML/DMC + DMRcate per sequencing method (Tier 1 and Tier 2)
-# -------------------------------------------------------------------------
+# ---- 4. Paired DML/DMC + DMRcate per sequencing method (Tier 1 and Tier 2) ----
 
 cat("[4/8] Running paired DML testing and DMRcate per sequencing method...\n")
 
 run_tier <- function(bsseq_list, tier_label) {
 
-  dml_list <- list()  
-  dmc_list <- list()  
+  dml_list <- list()
+  dmc_list <- list()
   dmr_list <- list()
 
   for (method in names(METHOD_PREFIX)) {
@@ -672,14 +491,7 @@ run_tier <- function(bsseq_list, tier_label) {
 seq_t1 <- run_tier(bsseq_t1, "Tier1")
 seq_t2 <- run_tier(bsseq_t2, "Tier2")
 
-# -------------------------------------------------------------------------
-# 5. EPIC: paired limma on M-values (Tier 2 only)
-# -------------------------------------------------------------------------
-# EPIC provides no methylated/unmethylated read counts, so it cannot enter
-# the DSS Beta-Binomial pipeline above; per the Methods, its primary-stage
-# differential methylation is assessed with limma on M-values instead.
-# Design is `~ subject + group`, mirroring the sequencing methods' pairing
-# and limma_diff_meth.R's exploratory-stage fix.
+# ---- 5. EPIC: paired limma on M-values (Tier 2 only) ------------------------
 
 cat("[5/8] Running paired EPIC limma-on-M-values (Tier 2)...\n")
 
@@ -690,6 +502,7 @@ epic_beta <- as.matrix(combined_tier2[, c(epic_blood_cols, epic_fibro_cols), wit
 rownames(epic_beta) <- combined_tier2$cpg_id
 epic_beta <- epic_beta[complete.cases(epic_beta), , drop = FALSE]
 
+# M-values; beta bounded to [0.001, 0.999] to avoid infinite values.
 beta_to_m <- function(beta, offset = 0.001) {
   beta <- pmin(pmax(beta, offset), 1 - offset)
   log2(beta / (1 - beta))
@@ -702,6 +515,8 @@ epic_group   <- factor(
   levels = c("Fibro", "Blood")
 )
 epic_design <- if (opt$unpaired) model.matrix(~ epic_group) else model.matrix(~ epic_subject + epic_group)
+# Significance from the moderated t-test on M-values; the |delta beta| filter
+# is applied on the beta scale, as for the DSS calls.
 epic_fit    <- eBayes(lmFit(epic_m, epic_design))
 
 epic_delta_beta <- rowMeans(epic_beta[, epic_blood_cols, drop = FALSE]) -
@@ -712,10 +527,6 @@ epic_test <- topTable(epic_fit, coef = "epic_groupBlood", number = Inf,
 epic_test$chr        <- sub(":.*", "", rownames(epic_test))
 epic_test$pos        <- as.integer(sub(".*:", "", rownames(epic_test)))
 epic_test$delta_beta <- epic_delta_beta[rownames(epic_test)]
-# Harmonize column naming with the DSS paired test output (chr/pos/stat/
-# pvals/fdrs/delta_beta) so all five Tier-2 methods share one schema in
-# Tier2_DML.rds, rather than mixing limma's P.Value/adj.P.Val naming in
-# for just one of the five list entries.
 epic_test$stat  <- epic_test$t
 epic_test$pvals <- epic_test$P.Value
 epic_test$fdrs  <- epic_test$adj.P.Val
@@ -742,8 +553,6 @@ if (!is.null(epic_dmr) && length(epic_dmr) > 0) {
          file.path(opt$datadir, "Tier2_DMR_EPIC.tsv"), sep = "\t")
 }
 
-# Fold EPIC into the Tier 2 lists so downstream Fig. 8/9 code can treat all
-# five Tier-2 platforms uniformly.
 seq_t2$dml[["EPIC"]] <- epic_test
 seq_t2$dmc[["EPIC"]] <- data.frame(chr = epic_dmc$chr, pos = epic_dmc$pos,
                                     diff = epic_dmc$delta_beta, fdr = epic_dmc$adj.P.Val)
@@ -756,9 +565,7 @@ if (opt$unpaired) {
   quit(save = "no", status = 0)
 }
 
-# -------------------------------------------------------------------------
-# 6. Figure 8 -- CpG-level (DMC) concordance
-# -------------------------------------------------------------------------
+# ---- 6. Figure 8 -- CpG-level (DMC) concordance -----------------------------
 
 cat("[6/8] Generating Figure 8 (CpG-level DMC concordance)...\n")
 
@@ -766,8 +573,6 @@ make_cpg_ids <- function(dmc_list) lapply(dmc_list, function(df) paste0(df$chr, 
 
 dmc_cpg_ids_t1 <- make_cpg_ids(seq_t1$dmc)
 dmc_cpg_ids_t2 <- make_cpg_ids(seq_t2$dmc)
-
-# 6a) Hyper/hypo count barplot ------------------------------------------
 
 plot_dmc_counts <- function(dmc_list, tier_label, method_col) {
   count_df <- bind_rows(lapply(names(dmc_list), function(m) {
@@ -801,8 +606,6 @@ ggsave(file.path(opt$outdir, "dmc_counts_Tier1.png"),
        plot_dmc_counts(seq_t1$dmc, "Tier1", METHOD_COLORS), width = 14, height = 12, dpi = 300)
 ggsave(file.path(opt$outdir, "dmc_counts_Tier2.png"),
        plot_dmc_counts(seq_t2$dmc, "Tier2", METHOD_COLORS_EPIC), width = 14, height = 12, dpi = 300)
-
-# 6b) Exclusivity -----------------------------------------------------------
 
 plot_dmc_exclusivity <- function(dmc_cpg_ids, tier_label, method_col) {
   keys <- names(dmc_cpg_ids)
@@ -839,8 +642,6 @@ ggsave(file.path(opt$outdir, "dmc_exclusivity_Tier1.png"),
        plot_dmc_exclusivity(dmc_cpg_ids_t1, "Tier1", METHOD_COLORS), width = 14, height = 12, dpi = 300)
 ggsave(file.path(opt$outdir, "dmc_exclusivity_Tier2.png"),
        plot_dmc_exclusivity(dmc_cpg_ids_t2, "Tier2", METHOD_COLORS_EPIC), width = 14, height = 12, dpi = 300)
-
-# 6c) DMC-level Jaccard heatmap ----------------------------------------------
 
 plot_jaccard_heatmap <- function(jmat, tier_label, method_col, level_label) {
   keys <- intersect(rownames(jmat), names(method_col))
@@ -881,8 +682,6 @@ write_jaccard(jaccard_dmc_t2, file.path(opt$datadir, "DMC_Jaccard_Tier2.tsv"))
 plot_jaccard_heatmap(jaccard_dmc_t1, "Tier1", METHOD_COLORS, "DMC")
 plot_jaccard_heatmap(jaccard_dmc_t2, "Tier2", METHOD_COLORS_EPIC, "DMC")
 
-# 6d) UpSet -------------------------------------------------------------
-
 plot_dmc_upset <- function(dmc_cpg_ids, tier_label, method_col) {
   all_cpgs <- unique(unlist(dmc_cpg_ids))
   upset_data <- as.data.frame(sapply(dmc_cpg_ids, function(ids) all_cpgs %in% ids))
@@ -892,11 +691,6 @@ plot_dmc_upset <- function(dmc_cpg_ids, tier_label, method_col) {
                    RRBS = "ShortRead", EPIC = "Array")
   stripes <- data.frame(set = keys, Assay = assay_type[keys])
 
-  # A hardcoded min_size (e.g. 10) filters out EVERY intersection -- and
-  # crashes ComplexUpset with "No intersections left after filtering" --
-  # once the Tier1/Tier2 consensus set is small enough that no method
-  # combination reaches that size. Cap it to what the data can actually
-  # support instead.
   combo_key       <- do.call(paste, c(upset_data[keys], sep = "_"))
   max_combo_size  <- if (length(combo_key) > 0) max(table(combo_key)) else 1L
   safe_min_size   <- max(1L, min(10L, max_combo_size))
@@ -944,10 +738,6 @@ plot_dmc_upset <- function(dmc_cpg_ids, tier_label, method_col) {
 plot_dmc_upset(dmc_cpg_ids_t1, "Tier1", METHOD_COLORS)
 plot_dmc_upset(dmc_cpg_ids_t2, "Tier2", METHOD_COLORS_EPIC)
 
-# 6e) Pairwise Delta-beta scatter (Tier 1 only -- matches Fig. 8A, six
-#     sequencing-platform pairs; EPIC vs. TWIST is Fig. 7B, from
-#     12_differential_methylation.R, not reproduced here) ------------------
-
 plot_delta_beta_scatter <- function(dml_list, tier_label, method_col) {
   methods <- names(dml_list)
   pairs   <- combn(methods, 2, simplify = FALSE)
@@ -992,8 +782,6 @@ plot_delta_beta_scatter <- function(dml_list, tier_label, method_col) {
 
 plot_delta_beta_scatter(seq_t1$dml, "Tier1", METHOD_COLORS)
 
-# 6f) Coverage distribution on the consensus set -----------------------------
-
 plot_coverage_distribution <- function(combined_consensus, method_col, min_cov = MIN_COV) {
   cov_df <- bind_rows(lapply(names(METHOD_PREFIX), function(m) {
     cov_cols <- get_cov_cols(combined_consensus, m, "Blood")
@@ -1024,19 +812,13 @@ plot_coverage_distribution <- function(combined_consensus, method_col, min_cov =
       text        = element_text(size = 26),
       axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, colour = method_col[names(METHOD_PREFIX)])
     )
-    #theme(legend.position = "none",
-    #      strip.background = element_rect(fill = "grey90", color = NA),
-    #      axis.text = element_text(size = 26), axis.title = element_text(size = 26), text = element_text(size = 26),
-    #      axis.text.x = element_text(size = 20, colour = method_col[names(METHOD_PREFIX)]))
 
   ggsave(file.path(opt$outdir, "coverage_distribution_consensus_Tier1.png"), p, width = 14, height = 12, dpi = 300)
 }
 
 plot_coverage_distribution(combined_tier1, METHOD_COLORS)
 
-# -------------------------------------------------------------------------
-# 7. Figure 9 -- Region-level (DMR) concordance
-# -------------------------------------------------------------------------
+# ---- 7. Figure 9 -- Region-level (DMR) concordance --------------------------
 
 cat("[7/8] Generating Figure 9 (DMR-level concordance)...\n")
 
@@ -1119,15 +901,11 @@ write_jaccard(jaccard_dmr_t2, file.path(opt$datadir, "DMRcate_DMR_Jaccard_Tier2.
 plot_jaccard_heatmap(jaccard_dmr_t1, "Tier1", METHOD_COLORS, "DMR")
 plot_jaccard_heatmap(jaccard_dmr_t2, "Tier2", METHOD_COLORS_EPIC, "DMR")
 
-# -------------------------------------------------------------------------
-# 8. Supplementary Figure 15 -- threshold-free rank-recovery (ROC/AUC)
-# -------------------------------------------------------------------------
+# ---- 8. Supplementary Figure 15 -- threshold-free rank-recovery (ROC/AUC) ----
 
 cat("[8/8] Generating Supplementary Figure 15 (rank-recovery ROC/AUC)...\n")
 
-#' Fast exact ROC/AUC from one sort (O(n log n)); ties handled as a block,
-#' so the trapezoidal AUC equals the Mann-Whitney estimate. The curve is
-#' interpolated to a fixed FPR grid for plotting.
+# Fast exact ROC/AUC from one sort (O(n log n)).
 fast_roc <- function(labels, score, grid = seq(0, 1, by = 0.001)) {
   ok <- !is.na(labels) & !is.na(score)
   labels <- labels[ok]; score <- score[ok]
@@ -1152,15 +930,16 @@ plot_roc_vs_reference <- function(dml_list, reference, tier_label, method_col) {
       abs(dml_list[[reference]]$delta_beta) >= DELTA_CUTOFF,
     delta_beta_ref = dml_list[[reference]]$delta_beta
   )
-  
+
   methods_plot <- setdiff(names(dml_list), reference)
-  
+
   res <- lapply(methods_plot, function(m) {
     df <- data.frame(cpg_id     = paste0(dml_list[[m]]$chr, ":", dml_list[[m]]$pos),
                      fdrs       = dml_list[[m]]$fdrs,
                      delta_beta = dml_list[[m]]$delta_beta)
     merged <- inner_join(ref_df, df, by = "cpg_id")
-    # Direction-aware score: high if significant AND same direction as the reference
+    # Direction-aware score: positive only if the direction agrees with the
+    # reference platform.
     score <- -log10(merged$fdrs + 1e-300) *
       sign(merged$delta_beta) * sign(merged$delta_beta_ref)
     r <- fast_roc(merged$is_dmc, score)
@@ -1171,11 +950,11 @@ plot_roc_vs_reference <- function(dml_list, reference, tier_label, method_col) {
                             n_ref_DMCs = sum(merged$is_dmc)))
   })
   res <- Filter(Negate(is.null), res)
-  
+
   roc_df <- bind_rows(lapply(res, `[[`, "curve"))
   auc_df <- bind_rows(lapply(res, `[[`, "auc"))
   label_map <- setNames(sprintf("%s (AUC = %.3f)", auc_df$Method, auc_df$AUC), auc_df$Method)
-  
+
   p <- ggplot(roc_df, aes(x = fpr, y = tpr, color = method, group = method)) +
     geom_line(linewidth = 1.2) +
     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
@@ -1192,7 +971,7 @@ plot_roc_vs_reference <- function(dml_list, reference, tier_label, method_col) {
           plot.subtitle = element_text(hjust = 0.5, size = 18),
           axis.text = element_text(size = 26), axis.title = element_text(size = 26),
           text = element_text(size = 26))
-  
+
   ggsave(file.path(opt$outdir, paste0("roc_vs_", reference, "_", tier_label, ".png")),
          p, width = 14, height = 12, dpi = 300)
   auc_df
@@ -1204,9 +983,7 @@ auc_all <- bind_rows(lapply(names(METHOD_PREFIX), function(ref)
 fwrite(as.data.table(auc_all), file.path(opt$datadir, "ROC_AUC_Tier1.tsv"), sep = "\t")
 print(auc_all)
 
-# -------------------------------------------------------------------------
-# Save session information
-# -------------------------------------------------------------------------
+# ---- Save session information -----------------------------------------------
 
 writeLines(capture.output(sessionInfo()), file.path(opt$datadir, "sessionInfo.txt"))
 

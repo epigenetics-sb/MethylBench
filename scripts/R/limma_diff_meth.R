@@ -1,76 +1,13 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# MethylBench – Limma Differential Methylation Analysis
+# MethylBench - exploratory paired limma per platform
 # =============================================================================
-# Description:
-#   Runs limma-based differential methylation analysis (Blood vs Fibroblast)
-#   for each platform independently. Generates one output CSV per method in
-#   the format expected by 06_differential_methylation.R for the UpSet plot.
+# Paired limma (design ~ subject + group) on beta-values for all five platforms
+# on the common CpG set. Input for 12_differential_methylation.R
+# (Suppl. Figure 7).
 #
-#   Output files per method (in --outdir):
-#     EPIC_Blood_vs_Fibroblast.csv
-#     ONT_Blood_vs_Fibroblast.csv
-#     TWIST_Blood_vs_Fibroblast.csv
-#     RRBS_Blood_vs_Fibroblast.csv
-#     WGEC_Blood_vs_Fibroblast.csv
-#
-#   Output columns (no header, positional):
-#     V1 = CpG identifier (chr:start)
-#     V2 = logFC (log2 fold change, Blood vs Fibro)
-#     V3 = AveExpr (average expression/methylation)
-#     V4 = t statistic
-#     V5 = P.Value
-#     V6 = adj.P.Val (BH-corrected FDR) 
-#     V7 = B (log-odds)
-#     V8 = delta_beta (mean_blood - mean_fibro, on beta scale)
-#
-#   Additionally writes:
-#     all_methods_limma_combined.csv 
-#
-# CHANGELOG (post-review fix, Reviewer 1 / Major comment 2, pairing part
-# ONLY -- see note below on scope):
-#   FIXED missing subject-level pairing:
-#     Blood and fibroblast samples come from the SAME 5 individuals (paired
-#     design), but the design matrix used to be group-only (~group),
-#     ignoring which blood sample belongs to which fibroblast sample.
-#     Subject identity is now parsed directly from the sample suffix in the
-#     column names actually used for each method (get_subject_id()) --
-#     deriving it from the real column names rather than assuming
-#     blood_cols[i]/fibro_cols[i] line up positionally, the same principle
-#     used to fix the PCA label desync in 11_pca.R -- and the design is now
-#     ~subject + group, so the Blood-vs-Fibro test is adjusted for each
-#     individual's baseline methylation level.
-#
-#   NOT CHANGED HERE, ON PURPOSE -- beta- vs. M-value scale:
-#     This script implements the EXPLORATORY differential methylation stage
-#     (Section 2.5.1 in the manuscript: limma and Wilcoxon applied to the
-#     full overlapping CpG set, n=146,704, on beta-values, for a like-for-
-#     like comparison of the two statistical frameworks across all five
-#     platforms). The Methods text's statement that "EPIC was analyzed
-#     using limma on M-values" refers specifically to the PRIMARY analysis
-#     (Section 2.5.2: DSS Beta-Binomial for sequencing methods on the
-#     Tier1/Tier2 consensus set, with limma-on-M-values as the necessary
-#     EPIC counterpart, since EPIC yields no read counts for DSS). Applying
-#     an M-value transform to EPIC only in THIS script would (a) not match
-#     what generated the already-reported Fig. 7A exploratory numbers, and
-#     (b) break the intentional same-scale comparison between limma and
-#     Wilcoxon in Section 2.5.1. The beta-vs-M-value scale question is
-#     therefore intentionally left untouched here; see the response letter
-#     for how the primary-analysis (Tier1/Tier2) EPIC M-value step is
-#     addressed.
-#
-# Input:
-#   --all_path    Path to ALL_with_EPIC.csv
-#                 Column naming convention:
-#                   EPIC_Blood1..5,  EPIC_Fibro1..5
-#                   ONT_Blood1..5,   WGEC_Blood1..5,  TWIST_Blood1..5, RRBS_Blood1..5
-#                   ONT_Fibro1..5,   WGEC_Fibro1..5,  TWIST_Fibro1..5, RRBS_Fibro1..5
-#   --outdir      Output directory for per-method CSV files
-#   --fdr_cutoff  BH-adjusted p-value threshold for significance [default: 0.05]
-#   --delta_cutoff Absolute delta-beta threshold [default: 0.1]
-#
-#
-# Author:  MethylBench – Laufer et al.
+# Usage:
+#   Rscript scripts/R/limma_diff_meth.R --all_path ALL.csv --outdir results/diff_meth/
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -121,16 +58,8 @@ DELTA_CUTOFF <- opt$delta_cutoff
 BLOOD_IDS    <- paste0("Blood", 1:5)
 FIBRO_IDS    <- paste0("Fibro",  1:5)
 
-#' Parse the subject/individual ID directly from a sample column name
-#' (e.g. "EPIC_Blood3" -> "3", "WGEC_Fibro3" -> "3"). Blood/Fibro pairs
-#' with the same trailing number are assumed to come from the same
-#' individual (matched blood/fibroblast sampling per subject; see Methods,
-#' "Matched blood and fibroblast samples from five human individuals").
-#'
-#' Deriving this from the actual column names -- rather than assuming
-#' blood_cols[i] and fibro_cols[i] line up positionally -- means pairing
-#' cannot silently break if columns are ever reordered or subsetted
-#' upstream (the same principle as the PCA label-desync fix in 11_pca.R).
+# Subject ID = trailing number of the sample name (Blood<i> and Fibro<i> are
+# the same individual).
 get_subject_id <- function(col_names) {
   m  <- regmatches(col_names,
                     regexec("(?:Blood|Fibro)([0-9]+)$", col_names))
@@ -147,6 +76,7 @@ cat("[1/4] Loading ALL matrix...\n")
 all <- fread(opt$all_path, header = TRUE, sep = ",", na.strings = "NA")
 cat(sprintf("  %d CpGs x %d columns\n", nrow(all), ncol(all)))
 
+# Same common five-platform CpG set as the Wilcoxon test in script 12.
 all <- all[platformsCoveredMask(all, c("EPIC", "ONT", "WGEC", "TWIST", "RRBS"))]
 cat(sprintf("  %d CpGs after restricting to the common 5-platform set\n", nrow(all)))
 
@@ -208,7 +138,6 @@ for (method_label in names(method_defs)) {
   beta_mat <- as.matrix(all[, c(blood_cols, fibro_cols), with = FALSE])
   rownames(beta_mat) <- cpg_ids
 
-  # Remove rows with any NA (limma requires complete data)
   complete_rows <- complete.cases(beta_mat)
   beta_mat      <- beta_mat[complete_rows, , drop = FALSE]
   cat(sprintf("    CpGs after NA removal: %d\n", nrow(beta_mat)))
@@ -218,12 +147,6 @@ for (method_label in names(method_defs)) {
     next
   }
 
-  # Design matrix: Blood = 1, Fibro = 0, ADJUSTED for subject identity
-  # (paired design: the same 5 individuals contribute both a blood and a
-  # fibroblast sample -- see Methods). Subject IDs are parsed from the
-  # actual column names (get_subject_id()), not assumed from column
-  # position, so pairing stays correct even if blood_cols/fibro_cols were
-  # ever reordered upstream.
   n_blood     <- length(blood_cols)
   n_fibro     <- length(fibro_cols)
   subject_ids <- get_subject_id(c(blood_cols, fibro_cols))
@@ -231,6 +154,8 @@ for (method_label in names(method_defs)) {
 
   group     <- factor(c(rep("Blood", n_blood), rep("Fibro", n_fibro)),
                       levels = c("Fibro", "Blood"))
+  # Blood-vs-Fibroblast coefficient estimated within individuals; all platforms,
+  # including EPIC, are modelled on the beta scale in this exploratory step.
   design    <- model.matrix(~ subject + group)
   colnames(design) <- c(
     "Intercept",
@@ -264,9 +189,6 @@ for (method_label in names(method_defs)) {
 
   results_list[[method_label]] <- top
 
-  # ----- Write per-method file in format expected by 06_differential_methylation.R
-  # Columns: CpG, logFC, AveExpr, t, P.Value, adj.P.Val (=FDR), B, delta_beta
-  # No header (V1..V8 positional access in downstream script)
   out_cols <- c("CpG", "logFC", "AveExpr", "t", "P.Value", "adj.P.Val", "B", "delta_beta")
   out_cols <- intersect(out_cols, colnames(top))
   out_df   <- top[, out_cols, drop = FALSE]

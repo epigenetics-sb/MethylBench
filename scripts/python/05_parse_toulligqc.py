@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""MethylBench - summarize ToulligQC .data reports into one CSV.
+
+Usage: python3 scripts/python/05_parse_toulligqc.py -i report_paths.txt -o toulligqc_summary.csv
+(report_paths.txt: one ToulligQC .data file per line)
+"""
 import argparse
 import csv
 from pathlib import Path
@@ -66,7 +71,6 @@ def main():
             row[csv_col] = info.get(data_key, "")
         all_rows.append(row)
 
-    # Write CSV
     with open(args.output, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(FIELD_MAP.keys()))
         writer.writeheader()
