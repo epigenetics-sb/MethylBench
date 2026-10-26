@@ -558,6 +558,9 @@ seq_t2$dmc[["EPIC"]] <- data.frame(chr = epic_dmc$chr, pos = epic_dmc$pos,
                                     diff = epic_dmc$delta_beta, fdr = epic_dmc$adj.P.Val)
 seq_t2$dmr[["EPIC"]] <- epic_dmr
 
+saveRDS(seq_t2$dml, file.path(opt$datadir, "Tier2_DML_withEPIC.rds"))
+saveRDS(seq_t2$dmr, file.path(opt$datadir, "Tier2_DMR_withEPIC.rds"))
+
 if (opt$unpaired) {
   writeLines(capture.output(sessionInfo()), file.path(opt$datadir, "sessionInfo.txt"))
   cat("\n--unpaired: DML/DMC/DMR tables written to ", normalizePath(opt$datadir),
@@ -827,11 +830,12 @@ make_dmr_summary <- function(dmr_list, tier_label) {
     dmr <- dmr_list[[method]]
     if (is.null(dmr) || length(dmr) == 0) {
       return(data.frame(Tier = tier_label, Method = method, DMRs = 0L,
-                         MedianWidth = NA_real_, MedianCpGs = NA_real_))
+                         MedianWidth = NA_real_, MedianCpGs = NA_real_, PctAtMinCpGs = NA_real_))
     }
     data.frame(Tier = tier_label, Method = method, DMRs = length(dmr),
                MedianWidth = median(width(dmr), na.rm = TRUE),
-               MedianCpGs  = median(dmr$no.cpgs, na.rm = TRUE))
+               MedianCpGs  = median(dmr$no.cpgs, na.rm = TRUE),
+               PctAtMinCpGs = 100 * mean(dmr$no.cpgs <= MIN_CPGS, na.rm = TRUE))
   }))
 }
 

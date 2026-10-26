@@ -51,6 +51,7 @@ MethylBench/
 │       ├── 13_DMR_DSS_analysis.R                # Figures 8, 9A/B/D, Suppl. Figures 12–15, Suppl. Table S2
 │       ├── 14_downsampling_sensitivity.R        # Suppl. Figure 17, Suppl. Table S5
 │       ├── 15_annotation_enrichment_background.R# Figure 9C, Suppl. Figures 9 and 18, Suppl. Tables S3/S4
+│       ├── 16_dmr_probe_density.R               # Suppl. Figure 20, Suppl. Table S11
 │       └── utils/
 │           └── helpers.R                        # shared functions, colours, plotting helpers
 │

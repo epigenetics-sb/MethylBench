@@ -159,4 +159,11 @@ run_step annotation_DMR \
     --datadir "$OUT/annotation_enrichment/" \
     --level   DMR
 
+run_step dmr_probe_density \
+  Rscript scripts/R/16_dmr_probe_density.R \
+    --dss_dir  "$OUT/dmr_dss/" \
+    --all_path "$DATA/ALL.csv" \
+    --outdir   "$OUT/figures/" \
+    --datadir  "$OUT/dmr_density/"
+
 echo "[$(date '+%H:%M:%S')] MethylBench analysis finished. Results: $OUT"
