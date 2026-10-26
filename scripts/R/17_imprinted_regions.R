@@ -37,7 +37,8 @@
 #           otherwise the Bismark file of the sample is read
 #   PacBio  pb-CpG-tools combined BED, 0-based [.combined.bed]
 # All positions are converted to 1-based CpG positions (C of the + strand).
-# --epic_path: tab-separated EPIC beta matrices with a 'coord' column (chr:pos)
+# --epic_path: EPIC beta matrices (tab or comma) with a 'coord' column (chr:pos)
+#   or 'chr' and 'start' columns (1-based C position),
 #   and one column per sample named EPIC_<Sample>, as joined in buildMergedMatrix().
 # --gdmr_bed: BED (hg38, 0-based) with columns chr, start, end, name.
 # =============================================================================
@@ -175,8 +176,11 @@ calls <- rbindlist(lapply(seq_len(nrow(ss)), function(i) {
 if (!is.null(opt$epic_path)) {
   cat("  Reading EPIC matrices...\n")
   for (f in strsplit(opt$epic_path, ",")[[1]]) {
-    e <- fread(f, header = TRUE, sep = "\t")
-    if (!"coord" %in% names(e)) stop("EPIC matrix without 'coord' column: ", f)
+    e <- fread(f, header = TRUE)                       # tab- or comma-separated
+    if (!"coord" %in% names(e)) {
+      if (all(c("chr", "start") %in% names(e))) e[, coord := paste0(chr, ":", start)]
+      else stop("EPIC matrix needs a 'coord' column or 'chr' and 'start' columns: ", f)
+    }
     e[, `:=`(chr = sub(":.*", "", coord), pos = as.integer(sub(".*:", "", coord)))]
     for (smp in intersect(ss$Sample, sub("^EPIC_", "", grep("^EPIC_", names(e), value = TRUE)))) {
       tissue_smp <- ss$Tissue[ss$Sample == smp]
@@ -217,14 +221,14 @@ summary_tab <- per_gdmr[, .(
   gDMRs = uniqueN(gdmr),
   pct_detectable        = 100 * mean(detectable),
   pct_with_any_call     = 100 * mean(n_cpgs_pass >= 1),
-  median_cpgs_per_gDMR  = median(n_cpgs_pass),
+  median_cpgs_per_gDMR  = as.numeric(median(n_cpgs_pass)),
   median_pct_ref_cpgs   = median(100 * pmin(n_cpgs_pass / n_ref_cpgs, 1), na.rm = TRUE),
   median_gDMR_beta      = median(beta_mean, na.rm = TRUE),
   IQR_gDMR_beta         = IQR(beta_mean, na.rm = TRUE),
   median_abs_dev_0.5    = median(abs(beta_mean - 0.5), na.rm = TRUE)
 ), by = .(Platform, Tissue)]
 cpg_tab <- cpg_level[, .(
-  median_cov_in_gDMRs   = median(cov),
+  median_cov_in_gDMRs   = as.numeric(median(cov)),
   median_SE_at_0.5      = median(0.5 / sqrt(cov)),
   pct_cpg_beta_0.3_0.7  = 100 * mean(beta >= 0.3 & beta <= 0.7),
   SD_cpg_beta           = sd(beta)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# MethylBench - run the complete R analysis (scripts 08-15) in one go
+# MethylBench - run the complete R analysis (scripts 08-17) in one go
 # =============================================================================
 # Usage (from the repository root):
 #
@@ -14,6 +14,13 @@
 #   N_REPS   downsampling replicates for script 14   [default: 5, as in the paper]
 #   CORES    parallel workers for script 14           [default: 4]
 #   SKIP     space-separated step names to skip, e.g. SKIP="downsampling unpaired"
+#
+# Script 17 (imprinted gDMRs) needs per-platform methylation calls instead of
+# the merged matrices and runs only if these variables are set:
+#   CALLS_DIR    directory with per-platform calls, <CALLS_DIR>/<METHOD>/<Sample><suffix>
+#   SAMPLESHEET  sample sheet (comma-separated; columns Sample, Sampleset)
+#   GDMR_BED     BED file of imprinted gDMRs (hg38, 0-based; chr, start, end, name)
+#   EPIC_TSV     optional: comma-separated EPIC beta matrices (column 'coord' = chr:pos)
 #
 # Every step writes a log to $OUT/logs/<step>.log. The script stops at the
 # first failing step (set -e) and reports which one failed.
@@ -53,7 +60,7 @@ for f in "${required_inputs[@]}"; do
 done
 [[ $missing -eq 0 ]] || { echo "See README, section 'Input data', for the expected files." >&2; exit 1; }
 
-mkdir -p "$OUT"/{figures,figures_unpaired,diff_meth,dmr_dss,dmr_dss_unpaired,downsampling,annotation_enrichment,logs}
+mkdir -p "$OUT"/{figures,figures_unpaired,diff_meth,dmr_dss,dmr_dss_unpaired,downsampling,annotation_enrichment,dmr_density,imprinting,logs}
 
 # ---- helper -----------------------------------------------------------------
 run_step() {
@@ -100,19 +107,12 @@ run_step pca \
     --giab_path  "$DATA/GIAB_without_EPIC.csv" \
     --outdir     "$OUT/figures/"
 
-# ---- Exploratory paired limma (input for script 12) -------------------------
-run_step limma \
-  Rscript scripts/R/limma_diff_meth.R \
-    --all_path "$DATA/ALL.csv" \
-    --outdir   "$OUT/diff_meth/"
-
-# ---- Figure 7, Suppl. Figures 6-8 - exploratory limma / Wilcoxon ------------
-run_step diff_meth \
+# ---- Figure 7, Suppl. Figures 6-8 - measurement properties (no testing) ----
+run_step common_set \
   Rscript scripts/R/12_differential_methylation.R \
     --all_path   "$DATA/ALL.csv" \
     --blood_path "$DATA/Blood_without_EPIC.csv" \
     --fibro_path "$DATA/Fibro_without_EPIC.csv" \
-    --limma_dir  "$OUT/diff_meth/" \
     --outdir     "$OUT/figures/" \
     --datadir    "$OUT/diff_meth/"
 
@@ -159,11 +159,31 @@ run_step annotation_DMR \
     --datadir "$OUT/annotation_enrichment/" \
     --level   DMR
 
+# ---- Suppl. Figure 20, Suppl. Table S11 - probe density and DMR calling ----
+# needs the Tier 1/Tier 2 consensus sets and DML/DMR results from step 'dss'
 run_step dmr_probe_density \
   Rscript scripts/R/16_dmr_probe_density.R \
     --dss_dir  "$OUT/dmr_dss/" \
     --all_path "$DATA/ALL.csv" \
     --outdir   "$OUT/figures/" \
     --datadir  "$OUT/dmr_density/"
+
+# ---- Suppl. Figure 21, Suppl. Table S12 - imprinted gDMRs (optional) --------
+# needs per-platform calls (CALLS_DIR), SAMPLESHEET and GDMR_BED; uses the
+# DML results from step 'dss' for the negative control (Suppl. Table S12D)
+if [[ -n "${CALLS_DIR:-}" && -n "${SAMPLESHEET:-}" && -n "${GDMR_BED:-}" ]]; then
+  imprint_args=(
+    --samplesheet "$SAMPLESHEET"
+    --calls_dir   "$CALLS_DIR"
+    --gdmr_bed    "$GDMR_BED"
+    --dss_dir     "$OUT/dmr_dss/"
+    --outdir      "$OUT/figures/"
+    --datadir     "$OUT/imprinting/"
+  )
+  if [[ -n "${EPIC_TSV:-}" ]]; then imprint_args+=(--epic_path "$EPIC_TSV"); fi
+  run_step imprinting Rscript scripts/R/17_imprinted_regions.R "${imprint_args[@]}"
+else
+  echo "[skip] imprinting (set CALLS_DIR, SAMPLESHEET and GDMR_BED to run script 17)"
+fi
 
 echo "[$(date '+%H:%M:%S')] MethylBench analysis finished. Results: $OUT"

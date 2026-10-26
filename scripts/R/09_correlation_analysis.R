@@ -298,6 +298,10 @@ fwrite(strat_all, file.path(opt$outdir, "Correlation_by_methylation_stratum.tsv"
 
 # ---- Suppl. Table S7 (10x) --------------------------------------------------
 strat_10x <- as.data.table(strat_all)[Coverage == 10]
+# PacBio pairs are reported per dataset (GIAB1, GIAB2): the two PacBio datasets
+# differ in donor, chemistry and methylation caller.
+strat_10x[, Group := fifelse(Tissue == "GIAB" & grepl("PacBio", Comparison), Sample, Tissue)]
+
 table_s7 <- strat_10x[, .(
   n_samples        = .N,
   median_n_CpGs    = as.numeric(median(n_CpGs)),
@@ -307,7 +311,7 @@ table_s7 <- strat_10x[, .(
   Pearson_max      = round(max(Pearson,   na.rm = TRUE), 3),
   Spearman_mean    = round(mean(Spearman, na.rm = TRUE), 3),
   MAD_mean         = round(mean(MAD,      na.rm = TRUE), 3)
-), by = .(Tissue, Comparison, Stratum)][order(Tissue, Stratum, Comparison)]
+), by = .(Group, Comparison, Stratum)][order(Group, Stratum, Comparison)]
 fwrite(table_s7, file.path(opt$outdir, "Table_S7_intermediate_correlation.tsv"), sep = "\t")
 
 # Consistency check: "All" stratum vs. Figure 4 correlations.

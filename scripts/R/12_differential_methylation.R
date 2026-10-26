@@ -1,16 +1,18 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# MethylBench - exploratory differential methylation (limma / Wilcoxon)
+# MethylBench - measurement properties on the common five-platform CpG set
 # =============================================================================
-# Restricts all five platforms to the common CpG set, runs the unpaired
-# Wilcoxon rank-sum test per CpG, combines it with the paired limma results of
-# limma_diff_meth.R and plots overlap, effect-size concordance, variance and
-# coverage. Figure 7; Suppl. Figures 6-8.
+# Restricts all five platforms to the CpGs covered by every platform and
+# describes them without any statistical testing: blood-fibroblast delta-beta
+# per platform and its pairwise concordance, per-CpG coverage and within-group
+# variance. Differential methylation testing is done in 13_DMR_DSS_analysis.R
+# (DSS for sequencing data, limma on M-values for EPIC).
+# Figure 7; Suppl. Figures 6-8.
 #
 # Usage:
 #   Rscript scripts/R/12_differential_methylation.R --all_path ALL.csv \
 #     --blood_path Blood_without_EPIC.csv --fibro_path Fibro_without_EPIC.csv \
-#     --limma_dir results/diff_meth/ --outdir results/figures/ --datadir results/diff_meth/
+#     --outdir results/figures/ --datadir results/diff_meth/
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -22,10 +24,9 @@ suppressPackageStartupMessages({
   library(stringr)
   library(tibble)
   library(ComplexHeatmap)
-  library(ComplexUpset)
-  library(UpSetR)
   library(circlize)
   library(grid)
+  library(patchwork)
 })
 
 source("scripts/R/utils/helpers.R")
@@ -40,9 +41,6 @@ option_list <- list(
   make_option("--fibro_path",
     type = "character", help = "Path to Fibro_without_EPIC.csv [required]",
     metavar = "FILE"),
-  make_option("--limma_dir",
-    type = "character", help = "Directory with per-method limma DMC CSV files [required]",
-    metavar = "DIR"),
   make_option("--outdir",
     type    = "character", default = "results/figures/",
     help    = "Output directory for figures [default: results/figures/]",
@@ -50,16 +48,12 @@ option_list <- list(
   make_option("--datadir",
     type    = "character", default = "results/diff_meth/",
     help    = "Output directory for data files [default: results/diff_meth/]",
-    metavar = "DIR"),
-  make_option("--delta_cutoff",
-    type    = "double", default = 0.1,
-    help    = "Absolute delta-beta threshold for significance [default: 0.1]",
-    metavar = "FLOAT")
+    metavar = "DIR")
 )
 
 opt <- parse_args(OptionParser(option_list = option_list))
 
-for (arg in c("all_path", "blood_path", "fibro_path", "limma_dir")) {
+for (arg in c("all_path", "blood_path", "fibro_path")) {
   val <- opt[[arg]]
   if (is.null(val)) stop(paste("ERROR: --", arg, " is required", sep = ""))
 }
@@ -67,7 +61,6 @@ for (arg in c("all_path", "blood_path", "fibro_path", "limma_dir")) {
 dir.create(opt$outdir,  recursive = TRUE, showWarnings = FALSE)
 dir.create(opt$datadir, recursive = TRUE, showWarnings = FALSE)
 
-DELTA_CUTOFF <- opt$delta_cutoff
 col.vec      <- get_colors()
 BLOOD_IDS    <- paste0("Blood", 1:5)
 FIBRO_IDS    <- paste0("Fibro",  1:5)
@@ -161,9 +154,9 @@ methods <- list(
   )
 )
 
-# ---- 2. Wilcoxon rank-sum test per CpG --------------------------------------
+# ---- 2. Delta-beta per platform (no testing) --------------------------------
 
-cat("[3/6] Running Wilcoxon tests...\n")
+cat("[3/6] Computing delta-beta per platform...\n")
 
 results_list <- list()
 
@@ -171,65 +164,31 @@ for (method in names(methods)) {
 
   df <- as.data.table(methods[[method]])
 
-  if (is.null(rownames(df))) {
-    rownames(df) <- paste0("CpG_", seq_len(nrow(df)))
-  }
-
   blood_cols <- grep(paste0("(?i)^", method, "_blood"),
                      colnames(df), value = TRUE, perl = TRUE)
   fibro_cols <- grep(paste0("(?i)^", method, "_fibro"),
                      colnames(df), value = TRUE, perl = TRUE)
 
-  blood_mat <- as.matrix(df[, ..blood_cols, drop = FALSE])
-  fibro_mat <- as.matrix(df[, ..fibro_cols, drop = FALSE])
+  mean_blood <- rowMeans(as.matrix(df[, ..blood_cols, drop = FALSE]), na.rm = TRUE)
+  mean_fibro <- rowMeans(as.matrix(df[, ..fibro_cols, drop = FALSE]), na.rm = TRUE)
 
-  mean_blood  <- rowMeans(blood_mat, na.rm = TRUE)
-  mean_fibro  <- rowMeans(fibro_mat, na.rm = TRUE)
-  delta_beta  <- mean_blood - mean_fibro
-
-  # Unpaired rank-sum test (the signed-rank test cannot reach p < 0.0625 with
-  # five pairs).
-  pvals <- vapply(
-    seq_len(nrow(blood_mat)),
-    FUN = function(i) {
-      bt <- as.numeric(blood_mat[i, ])
-      ft <- as.numeric(fibro_mat[i, ])
-      bt <- bt[!is.na(bt)]
-      ft <- ft[!is.na(ft)]
-      if (length(bt) < 1 || length(ft) < 1) return(NA_real_)
-      tryCatch(
-        wilcox.test(bt, ft, exact = FALSE)$p.value,
-        error = function(e) NA_real_
-      )
-    },
-    FUN.VALUE = numeric(1)
-  )
-
-  stopifnot(
-    length(pvals)      == nrow(df),
-    length(delta_beta) == nrow(df)
-  )
-
-  fdr <- p.adjust(pvals, method = "BH")
-
+  # Rows of `all` are identical for all methods, so the row index is the CpG key.
   results_list[[method]] <- data.frame(
-    CpG         = rownames(df),
-    delta_beta  = delta_beta,
-    pvalue      = pvals,
-    FDR         = fdr,
-    Significant = (!is.na(fdr) & fdr < 0.05 & abs(delta_beta) >= DELTA_CUTOFF),
-    Method      = method,
+    CpG        = paste0(all$chr, ":", all$start),
+    delta_beta = mean_blood - mean_fibro,
+    Method     = method,
     stringsAsFactors = FALSE
   )
 }
 
 all_results <- bind_rows(results_list)
+all_results$delta_beta[is.nan(all_results$delta_beta)] <- NA_real_
 
 fwrite(as.data.table(all_results),
-  file.path(opt$datadir, "Wilcoxon_results.csv"),
+  file.path(opt$datadir, "DeltaBeta_common_set.csv"),
   sep = ",", quote = FALSE
 )
-cat(sprintf("  Wilcoxon results: %d rows\n", nrow(all_results)))
+cat(sprintf("  Delta-beta table: %d rows\n", nrow(all_results)))
 
 # ---- 3. Figures -------------------------------------------------------------
 
@@ -256,7 +215,7 @@ ggsave(p_db,
 )
 
 # ---- Heatmaps of the most variable CpGs (Suppl. Figure 8) -------------------
-cat("\n[Diagnostics] CpGs tested per method (exploratory, before any filtering):\n")
+cat("\n[Diagnostics] CpGs per method on the common set:\n")
 print(table(all_results$Method))
 
 cat("\n[Diagnostics] Sample CpG IDs per method (first 3 each):\n")
@@ -285,6 +244,7 @@ mat_wide <- all_results %>%
   column_to_rownames("CpG") %>%
   as.matrix()
 
+mat_wide_all <- mat_wide
 n_before_complete <- nrow(mat_wide)
 mat_wide <- mat_wide[complete.cases(mat_wide), , drop = FALSE]
 cat(sprintf(
@@ -373,237 +333,98 @@ make_heatmap(500,  "Heatmap_top500.png")
 make_heatmap(1000, "Heatmap_top1000.png")
 make_heatmap(5000, "Heatmap_top5000.png")
 
-# ---- UpSet plot - limma DMCs (Suppl. Figure 7) ------------------------------
+# ---- Pairwise delta-beta concordance (Figure 7A, 7B; Suppl. Figure 7) -------
 
-limma_files <- list(
-  EPIC  = file.path(opt$limma_dir, "EPIC_Blood_vs_Fibroblast.csv"),
-  ONT   = file.path(opt$limma_dir, "ONT_Blood_vs_Fibroblast.csv"),
-  TWIST = file.path(opt$limma_dir, "TWIST_Blood_vs_Fibroblast.csv"),
-  RRBS  = file.path(opt$limma_dir, "RRBS_Blood_vs_Fibroblast.csv"),
-  WGEC  = file.path(opt$limma_dir, "WGEC_Blood_vs_Fibroblast.csv")
+PLAT_ORDER <- c("EPIC", "TWIST", "WGEC", "RRBS", "ONT")
+db_wide    <- mat_wide_all[, intersect(PLAT_ORDER, colnames(mat_wide_all)), drop = FALSE]
+pairs      <- combn(colnames(db_wide), 2, simplify = FALSE)
+
+cor_tab <- rbindlist(lapply(pairs, function(p) {
+  ok <- complete.cases(db_wide[, p])
+  data.table(
+    Platform1 = p[1], Platform2 = p[2], n_CpGs = sum(ok),
+    pearson_r  = cor(db_wide[ok, p[1]], db_wide[ok, p[2]], method = "pearson"),
+    spearman_rho = cor(db_wide[ok, p[1]], db_wide[ok, p[2]], method = "spearman"),
+    MAD        = mean(abs(db_wide[ok, p[1]] - db_wide[ok, p[2]])),
+    Comparison = ifelse("EPIC" %in% p, "EPIC-sequencing", "sequencing-sequencing")
+  )
+}))
+fwrite(cor_tab, file.path(opt$datadir, "DeltaBeta_pairwise_correlation.csv"))
+cat("\n[Pairwise delta-beta concordance, common set]\n")
+print(cor_tab)
+cat(sprintf("  Pearson r, all pairs: %.2f-%.2f; EPIC-sequencing: %.2f-%.2f; sequencing-sequencing: %.2f-%.2f\n",
+  min(cor_tab$pearson_r), max(cor_tab$pearson_r),
+  min(cor_tab[Comparison == "EPIC-sequencing", pearson_r]),
+  max(cor_tab[Comparison == "EPIC-sequencing", pearson_r]),
+  min(cor_tab[Comparison == "sequencing-sequencing", pearson_r]),
+  max(cor_tab[Comparison == "sequencing-sequencing", pearson_r])))
+
+# Figure 7A: lower-triangle correlation matrix.
+cor_plot <- rbind(
+  cor_tab[, .(x = Platform1, y = Platform2, r = pearson_r)],
+  data.table(x = colnames(db_wide), y = colnames(db_wide), r = NA_real_)
 )
+cor_plot[, `:=`(x = factor(x, levels = colnames(db_wide)),
+                y = factor(y, levels = rev(colnames(db_wide))))]
 
-missing_limma <- names(limma_files)[!sapply(limma_files, file.exists)]
-if (length(missing_limma) > 0) {
-  warning(paste("Limma files not found – skipping UpSet limma:",
-                paste(missing_limma, collapse = ", ")))
-} else {
-  limma_data <- lapply(names(limma_files), function(m) {
-    dt <- fread(limma_files[[m]], header = FALSE, sep = ",")
-    dt[dt$V6 < 0.05 & abs(dt$V8) >= 0.1, ]$V1
-  })
-  names(limma_data) <- names(limma_files)
+p_cor <- ggplot(cor_plot, aes(x = x, y = y)) +
+  geom_tile(data = cor_plot[!is.na(r)], aes(fill = r), color = "white", linewidth = 1) +
+  geom_text(data = cor_plot[!is.na(r)], aes(label = sprintf("%.2f", r)), size = 9) +
+  geom_text(data = cor_plot[is.na(r)], aes(label = x), size = 8, fontface = "bold") +
+  scale_fill_gradient(low = "#F1EFE8", high = "#0F6E56",
+                      limits = c(floor(min(cor_tab$pearson_r) * 20) / 20, 1),
+                      name = expression("Pearson r of" ~ Delta*beta),
+                      guide = guide_colorbar(title.position = "top", title.hjust = 0.5)) +
+  coord_fixed() +
+  labs(title = expression(Delta*beta ~ "concordance (Blood - Fibro), common CpG set"),
+       subtitle = sprintf("n = %s CpGs; no statistical testing",
+                          formatC(nrow(all), big.mark = ","))) +
+  theme_minimal() +
+  theme(axis.title = element_blank(), axis.text = element_blank(),
+        panel.grid = element_blank(), text = element_text(size = 22),
+        legend.position = "bottom", legend.key.width = unit(2, "cm"))
 
-  cat("\n[Diagnostics] Significant (p<0.05) DMCs per method (for UpSet_limma):\n")
-  print(sapply(limma_data, length))
+ggsave(p_cor, filename = file.path(opt$outdir, "DeltaBeta_correlation_matrix.png"),
+       height = 12, width = 12, dpi = 300)
 
-  upset_data <- UpSetR::fromList(limma_data)
-
-  cat("\n[Diagnostics] upset_data structure (columns must match intersect = c(...) below):\n")
-  cat("  dim: ", paste(dim(upset_data), collapse = " x "), "\n")
-  cat("  colnames: ", paste(colnames(upset_data), collapse = ", "), "\n\n")
-
-  requested_platforms <- c("ONT", "WGEC", "RRBS", "TWIST", "EPIC")
-  available_platforms <- intersect(requested_platforms, colnames(upset_data))
-  dropped_platforms   <- setdiff(requested_platforms, available_platforms)
-  if (length(dropped_platforms) > 0) {
-    warning(sprintf(
-      "upset_limma.png: platform(s) with zero significant (p<0.05) DMCs were dropped from the plot: %s",
-      paste(dropped_platforms, collapse = ", ")
-    ))
-  }
-  if (length(available_platforms) < 2) {
-    warning("upset_limma.png: fewer than 2 platforms have any significant DMCs -- skipping this plot entirely.")
-  } else {
-
-  stripe_df <- data.frame(
-    set    = names(PLATFORMS)[names(PLATFORMS) %in% available_platforms],
-    labeli = PLATFORMS[names(PLATFORMS) %in% available_platforms]
-  )
-
-  set_queries <- c(
-    lapply(available_platforms, function(p) upset_query(set = p, fill = METHOD_COLORS[[p]])),
-    singleton_queries(upset_data, available_platforms, METHOD_COLORS, 100))
-
-  png(file.path(opt$outdir, "upset_limma.png"),
-    width = 14, height = 7, units = "in", res = 400)
-
-  print(ComplexUpset::upset(
-    upset_data,
-    intersect = available_platforms,
-    queries   = set_queries,
-    set_sizes = upset_set_size(geom = geom_bar(width = 0.8)) +
-      ylab("DMCs") +
-      scale_y_continuous(
-        labels = scales::label_number(scale_cut = scales::cut_short_scale())
-      ) +
-      theme(text = element_text(size = 25)),
-    base_annotations = list(
-      "Intersection size" = intersection_size(width = 0.8, counts = FALSE) +
-        theme(
-          plot.background = element_rect(fill = "lightgray"),
-          text = element_text(size = 25)
-        ) +
-        ylab("Overlapping DMCs")
-    ),
-    stripes  = upset_stripes(
-      mapping = aes(color = labeli),
-      colors  = PLATFORM_COLORS,
-      data    = stripe_df
-    ),
-    name     = "Method specific limma-DMC overlap",
-    min_size = 100
-  ) +
-    guides(color = guide_legend(title = NULL)) +
-    theme(
-      text         = element_text(size = 25),
-      axis.text    = element_text(size = 18),
-      axis.title   = element_text(size = 20),
-      strip.text   = element_text(size = 18),
-      legend.text  = element_text(size = 18),
-      legend.title = element_text(size = 20)
-    ))
-
-  dev.off()
-  cat("  Saved: upset_limma.png\n")
-  }
+# Pairwise hexbin scatter in the style of Figure 8A.
+delta_hex <- function(m1, m2, text_size = 12) {
+  ok <- complete.cases(db_wide[, c(m1, m2)])
+  d  <- data.frame(x = db_wide[ok, m1], y = db_wide[ok, m2])
+  r  <- cor(d$x, d$y)
+  ggplot(d, aes(x, y)) +
+    geom_hex(bins = 80) +
+    scale_fill_viridis_c(option = "magma", trans = "log10", name = "CpGs (log10)") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red", linewidth = 0.8) +
+    annotate("text", x = -0.9, y = 0.9, label = sprintf("r = %.2f", r),
+             hjust = 0, size = text_size / 3, fontface = "bold", color = "black") +
+    coord_fixed(xlim = c(-1, 1), ylim = c(-1, 1)) +
+    labs(x = bquote(Delta*beta ~ .(m1)), y = bquote(Delta*beta ~ .(m2))) +
+    theme_bw() +
+    theme(text = element_text(size = text_size), axis.text = element_text(size = text_size))
 }
 
-# ---- UpSet plot - Wilcoxon DMCs (Figure 7A) ---------------------------------
-UPSET_MIN_SIZE <- 100
-
-cat("\n[Diagnostics] Wilcoxon DMCs per method (FDR < 0.05, |delta beta| >= cutoff):\n")
-print(table(factor(all_results$Method[all_results$Significant],
-                   levels = names(methods))))
-
-df_sig <- all_results %>%
-  filter(Significant) %>%
-  select(CpG, Significant, Method) %>%
-  pivot_wider(names_from = Method, values_from = Significant, values_fill = FALSE)
-
-requested_platforms_wil <- c("ONT", "TWIST", "WGEC", "RRBS", "EPIC")
-available_platforms_wil <- intersect(requested_platforms_wil, colnames(df_sig))
-dropped_platforms_wil   <- setdiff(requested_platforms_wil, available_platforms_wil)
-if (length(dropped_platforms_wil) > 0) {
-  warning(sprintf(
-    "upset_wilcoxon.png: platform(s) without significant Wilcoxon DMCs dropped: %s",
-    paste(dropped_platforms_wil, collapse = ", ")))
-}
-
-if (length(available_platforms_wil) < 2) {
-  warning("upset_wilcoxon.png: fewer than 2 platforms with significant DMCs -- skipped.")
-} else {
-
-  df_sig <- df_sig[rowSums(as.matrix(df_sig[, available_platforms_wil])) > 0, ]
-
-  stripe_df_wil <- data.frame(
-    set    = available_platforms_wil,
-    labeli = unname(PLATFORMS[available_platforms_wil])
-  )
-  queries_wil <- c(
-    lapply(available_platforms_wil, function(p)
-      upset_query(set = p, fill = METHOD_COLORS[[p]])),
-    singleton_queries(df_sig, available_platforms_wil, METHOD_COLORS, UPSET_MIN_SIZE)
-  )
-
-  png(file.path(opt$outdir, "upset_wilcoxon.png"),
-      width = 16, height = 10, units = "in", res = 400)
-
-  print(ComplexUpset::upset(
-    df_sig,
-    intersect = available_platforms_wil,
-    queries   = queries_wil,
-    set_sizes = upset_set_size(geom = geom_bar(width = 0.8)) +
-      ylab("DMCs") +
-      scale_y_continuous(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
-      theme(text = element_text(size = 25)),
-    base_annotations = list(
-      "Intersection size" = intersection_size(width = 0.8, counts = FALSE) +
-        theme(plot.background = element_rect(fill = "lightgray", colour = "black"),
-              text = element_text(size = 25)) +
-        ylab("Overlapping DMCs")
-    ),
-    stripes  = upset_stripes(mapping = aes(color = labeli),
-                             colors = PLATFORM_COLORS, data = stripe_df_wil),
-    name     = "Method specific overlap",
-    min_size = UPSET_MIN_SIZE
-  ) +
-    guides(color = guide_legend(title = NULL)) +
-    theme(text = element_text(size = 25), axis.text = element_text(size = 18),
-          axis.title = element_text(size = 20), strip.text = element_text(size = 18),
-          legend.text = element_text(size = 18), legend.title = element_text(size = 20)))
-
-  dev.off()
-  cat("  Saved: upset_wilcoxon.png\n")
-}
-
-# ---- EPIC vs. TWIST delta-beta scatter (Figure 7B) --------------------------
-
-epic_df  <- all_results %>%
-  filter(Method == "EPIC") %>%
-  select(CpG,
-    delta_beta_epic = delta_beta, pvalue_epic = pvalue,
-    FDR_epic = FDR, sig_epic = Significant)
-
-twist_df <- all_results %>%
-  filter(Method == "TWIST") %>%
-  select(CpG,
-    delta_beta_twist = delta_beta, pvalue_twist = pvalue,
-    FDR_twist = FDR, sig_twist = Significant)
-
-merged_scatter <- inner_join(epic_df, twist_df, by = "CpG") %>%
-  mutate(
-    concordance = case_when(
-      sig_epic & sig_twist & sign(delta_beta_epic) == sign(delta_beta_twist) ~ "Concordant",
-      sig_epic  & !sig_twist ~ "EPIC only",
-      sig_twist & !sig_epic  ~ "TWIST only",
-      TRUE ~ "Not significant"
-    )
-  )
-
-r_val <- round(cor(merged_scatter$delta_beta_epic,
-                    merged_scatter$delta_beta_twist,
-                    use = "pairwise.complete.obs"), 2)
-
-p_scatter <- ggplot(
-  merged_scatter,
-  aes(x = delta_beta_epic, y = delta_beta_twist, color = concordance)
-) +
-  geom_point(alpha = 0.6, size = 1.5) +
-  geom_abline(slope = 1, intercept = 0, linewidth = 1.2,
-              color = "black", linetype = "dashed") +
-  geom_smooth(method = "lm", se = FALSE, color = "red",
-              linetype = "dashed", linewidth = 1.2) +
-  scale_color_manual(values = c(
-    "Concordant"      = "green",
-    "EPIC only"       = METHOD_COLORS[["EPIC"]],
-    "TWIST only"      = METHOD_COLORS[["TWIST"]],
-    "Not significant" = "grey80"
-  )) +
-  coord_cartesian(xlim = c(-1, 1), ylim = c(-1, 1)) +
-  labs(
-    title    = "Cross-platform comparison of methylation changes",
-    subtitle = expression(Delta*beta ~ "concordance between EPIC and TWIST (Blood vs. Fibro)"),
-    x        = expression(Delta*beta ~ "(EPIC)"),
-    y        = expression(Delta*beta ~ "(TWIST)"),
-    color    = "Concordance"
-  ) +
-  annotate("text", x = -0.9, y = 0.9,
-           label = paste0("r = ", r_val),
-           size = 9, hjust = 0, fontface = "bold") +
-  guides(color = guide_legend(override.aes = list(size = 4, alpha = 1))) +
-  theme_bw() +
-  theme(
-    plot.title  = element_text(face = "bold"),
-    axis.text   = element_text(size = 26),
-    axis.title  = element_text(size = 26),
-    text        = element_text(size = 26)
-  )
-
+# Figure 7B: EPIC vs. TWIST, without significance colouring.
+p_scatter <- delta_hex("EPIC", "TWIST", text_size = 26) +
+  labs(title = expression(Delta*beta ~ "concordance between EPIC and TWIST (Blood vs. Fibro)"))
 ggsave(p_scatter,
   filename = file.path(opt$outdir, "Cross_Platform_EPIC_TWIST.png"),
   height = 12, width = 14, dpi = 300
 )
+
+# Suppl. Figure 7: all ten pairs.
+p_pairs <- wrap_plots(lapply(pairs, function(p) delta_hex(p[1], p[2]) +
+                               labs(title = paste(p[1], "vs.", p[2])) +
+                               theme(plot.title = element_text(face = "bold", hjust = 0.5))),
+                      ncol = 4, guides = "collect") +
+  plot_annotation(
+    title    = bquote(Pairwise ~ Delta*beta ~ concordance ~ "on the common five-platform CpG set"),
+    subtitle = sprintf("n = %s CpGs | red dashed = identity line | r = Pearson | no statistical testing",
+                       formatC(nrow(all), big.mark = ",")),
+    theme    = theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+                     plot.subtitle = element_text(hjust = 0.5, size = 14)))
+ggsave(p_pairs, filename = file.path(opt$outdir, "SuppFig7_DeltaBeta_pairs.png"),
+       height = 12, width = 16, dpi = 300)
 
 # ---- Within-group variance per method (Figure 7D) ---------------------------
 
