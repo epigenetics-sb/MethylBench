@@ -5,7 +5,7 @@
 # Caps per-CpG coverage of all sequencing platforms on Tier 1 at a common target
 # depth T (default: lowest platform median) by hypergeometric downsampling and
 # repeats the paired DSS + DMRcate analysis of 13_DMR_DSS_analysis.R.
-# Suppl. Figure 9, Suppl. Table S5.
+# Suppl. Figure 9, Suppl. Table S8.
 #
 # Usage:
 #   Rscript scripts/R/14_downsampling_sensitivity.R --dss_dir results/dmr_dss/ \

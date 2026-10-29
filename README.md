@@ -42,17 +42,17 @@ MethylBench/
 │   └── R/
 │       ├── 06_visualize_toulligqc_summary.R     # ONT QC report visualization
 │       ├── 07_generate_cpg_stats.R              # cpg_stats_methylbench.tab (input for 08)
-│       ├── 08_qc_visualization.R                # Figure 3, Suppl. Figure 1, Suppl. Table S6
-│       ├── 09_correlation_analysis.R            # Figure 4, Suppl. Figures 2 and 3, Suppl. Table S7
+│       ├── 08_qc_visualization.R                # Figure 3, Suppl. Figure 1, Suppl. Table S4
+│       ├── 09_correlation_analysis.R            # Figure 4, Suppl. Figures 2 and 3, Suppl. Table S5
 │       ├── 10_density_plots.R                   # Figure 5, Suppl. Figure 5
 │       ├── 11_pca.R                             # Figure 6, Suppl. Figure 6
 │       ├── 12_differential_methylation.R        # Figure 7, Suppl. Figure 7 (descriptive, no testing)
-│       ├── 13_DMR_DSS_analysis.R                # Figures 8, 9A/B/D, Suppl. Figures 8 and 10, Suppl. Table S2
-│       ├── 14_downsampling_sensitivity.R        # Suppl. Figure 9, Suppl. Table S5
-│       ├── 15_annotation_enrichment_background.R# Figure 9C, Suppl. Figure 11, Suppl. Tables S3/S4
+│       ├── 13_DMR_DSS_analysis.R                # Figures 8, 9A/B/D, Suppl. Figures 8 and 10, Suppl. Table S7
+│       ├── 14_downsampling_sensitivity.R        # Suppl. Figure 9, Suppl. Table S8
+│       ├── 15_annotation_enrichment_background.R# Figure 9C, Suppl. Figure 11, Suppl. Tables S9/S10
 │       ├── 16_dmr_probe_density.R               # Suppl. Figure 12, Suppl. Table S11
-│       ├── 17_imprinted_regions.R               # Suppl. Figure 4, Suppl. Table S12
-│       ├── 18_coverage_by_context.R             # Suppl. Figures 1E,F and 12E, Suppl. Tables S6B and S11F
+│       ├── 17_imprinted_regions.R               # Suppl. Figure 4, Suppl. Table S6
+│       ├── 18_coverage_by_context.R             # Suppl. Figures 1E,F and 12E, Suppl. Tables S4B and S11F
 │       └── utils/
 │           └── helpers.R                        # shared functions, colours, plotting helpers
 │
@@ -214,11 +214,11 @@ Per-platform call files and default suffixes (changeable via `--ont_suffix`, `--
 | RRBS (blood/fibroblast) | `RRBS/<Sample>.methylation.tab` | space-separated `chr pos coverage n_unmeth fraction`, 1-based, per strand; used if present, otherwise the Bismark file |
 | PacBio | `PacBio/<Sample>.combined.bed` | pb-CpG-tools combined BED, 0-based |
 
-All positions are converted to 1-based CpG positions (C of the + strand). With `--dss_dir`, script 17 also counts the DMCs of the primary analysis that fall into gDMRs (internal control, Suppl. Table S12E); it therefore runs after step `dss`.
+All positions are converted to 1-based CpG positions (C of the + strand). With `--dss_dir`, script 17 also counts the DMCs of the primary analysis that fall into gDMRs (internal control, Suppl. Table S6E); it therefore runs after step `dss`.
 
 #### gDMR list (`data/imprinted_gDMRs_hg38.bed`)
 
-The 67 imprinted germline DMRs were derived from the compilation of Akbari et al. (2022, *eLife* 11:e77898, Supplementary file 1), which lists 383 intervals with parent-of-origin methylation from four genome-wide studies (Court et al. 2014; Joshi et al. 2016; Hernández Mora et al. 2018; Zink et al. 2018) in hg38 coordinates. Intervals reported by at least two of the four studies were retained (n = 68), and overlapping intervals were merged (n = 67; median width 1,278 bp). The fourth column gives the gDMR name used in Suppl. Table S12.
+The 67 imprinted germline DMRs were derived from the compilation of Akbari et al. (2022, *eLife* 11:e77898, Supplementary file 1), which lists 383 intervals with parent-of-origin methylation from four genome-wide studies (Court et al. 2014; Joshi et al. 2016; Hernández Mora et al. 2018; Zink et al. 2018) in hg38 coordinates. Intervals reported by at least two of the four studies were retained (n = 68), and overlapping intervals were merged (n = 67; median width 1,278 bp). The fourth column gives the gDMR name used in Suppl. Table S6.
 
 ---
 
@@ -272,14 +272,14 @@ export N_REPS=5
 
 mkdir -p "$OUT"/{figures,figures_unpaired,diff_meth,dmr_dss,dmr_dss_unpaired,downsampling,annotation_enrichment,dmr_density,coverage_context,imprinting}
 
-# Figure 3, Suppl. Figure 1, Suppl. Table S6 – QC and per-CpG coverage uniformity
+# Figure 3, Suppl. Figure 1, Suppl. Table S4 – QC and per-CpG coverage uniformity
 Rscript scripts/R/08_qc_visualization.R \
   --cpg_stats "$STATS/cpg_stats_methylbench.tab" \
   --qc_stats  "$STATS/qc_stats_methylbench.tab" \
   --all_path  "$DATA/ALL_without_EPIC.csv" \
   --outdir    "$OUT/figures/"
 
-# Figure 4, Suppl. Figures 2 and 3, Suppl. Table S7 – cross-platform correlation
+# Figure 4, Suppl. Figures 2 and 3, Suppl. Table S5 – cross-platform correlation
 Rscript scripts/R/09_correlation_analysis.R \
   --datadir "$DATA/" \
   --outdir  "$OUT/figures/"
@@ -313,7 +313,7 @@ Rscript scripts/R/13_DMR_DSS_analysis.R \
   --outdir   "$OUT/figures/" \
   --datadir  "$OUT/dmr_dss/"
 
-# Suppl. Table S2 – unpaired sensitivity run (design ~ group; tables only)
+# Suppl. Table S7 – unpaired sensitivity run (design ~ group; tables only)
 Rscript scripts/R/13_DMR_DSS_analysis.R \
   --seq_path "$DATA/ALL_without_EPIC.csv" \
   --all_path "$DATA/ALL.csv" \
@@ -321,7 +321,7 @@ Rscript scripts/R/13_DMR_DSS_analysis.R \
   --datadir  "$OUT/dmr_dss_unpaired/" \
   --unpaired
 
-# Suppl. Figure 9, Suppl. Table S5 – depth-matched sensitivity analysis
+# Suppl. Figure 9, Suppl. Table S8 – depth-matched sensitivity analysis
 # (reads BSseq_Tier1.rds, Tier1_DML.rds, Tier1_DMR.rds from the paired run)
 Rscript scripts/R/14_downsampling_sensitivity.R \
   --dss_dir "$OUT/dmr_dss/" \
@@ -330,7 +330,7 @@ Rscript scripts/R/14_downsampling_sensitivity.R \
   --n_reps  "$N_REPS" \
   --cores   4
 
-# Figure 9C, Suppl. Figure 11, Suppl. Tables S3/S4 – annotation enrichment
+# Figure 9C, Suppl. Figure 11, Suppl. Tables S9/S10 – annotation enrichment
 Rscript scripts/R/15_annotation_enrichment_background.R \
   --dss_dir "$OUT/dmr_dss/" \
   --outdir  "$OUT/figures/" \
@@ -351,7 +351,7 @@ Rscript scripts/R/16_dmr_probe_density.R \
   --outdir   "$OUT/figures/" \
   --datadir  "$OUT/dmr_density/"
 
-# Suppl. Figures 1E,F and 12E, Suppl. Tables S6B and S11F – coverage by genomic context
+# Suppl. Figures 1E,F and 12E, Suppl. Tables S4B and S11F – coverage by genomic context
 # and DMC/DMR sensitivity (reads the Tier 1 results of the paired run)
 Rscript scripts/R/18_coverage_by_context.R \
   --all_path "$DATA/ALL_without_EPIC.csv" \
@@ -359,7 +359,7 @@ Rscript scripts/R/18_coverage_by_context.R \
   --outdir   "$OUT/figures/" \
   --datadir  "$OUT/coverage_context/"
 
-# Suppl. Figure 4, Suppl. Table S12 – imprinted gDMRs (inputs: see "Inputs for script 17";
+# Suppl. Figure 4, Suppl. Table S6 – imprinted gDMRs (inputs: see "Inputs for script 17";
 # omit --epic_path if no EPIC matrices are available)
 Rscript scripts/R/17_imprinted_regions.R \
   --samplesheet "$SAMPLESHEET" \
@@ -382,13 +382,13 @@ Rscript scripts/R/17_imprinted_regions.R \
 | `$OUT/figures/` | all figure panels (PNG; Suppl. Figure 9 also as single PDF panels) |
 | `$OUT/diff_meth/` | `DeltaBeta_common_set.csv`, `DeltaBeta_pairwise_correlation.csv` (Figure 7A), `Variances.csv` |
 | `$OUT/dmr_dss/` | Tier 1/2 consensus sets, BSseq objects, DML/DMC/DMR tables, Jaccard and AUC tables |
-| `$OUT/dmr_dss_unpaired/` | the same tables without the subject term (Suppl. Table S2) |
+| `$OUT/dmr_dss_unpaired/` | the same tables without the subject term (Suppl. Table S7) |
 | `$OUT/downsampling/` | per-replicate results, `Table_S5_downsampling_*.tsv` |
-| `$OUT/annotation_enrichment/` | `annotation_enrichment_{genecentric,cpgstructural}_{CpG,DMR}_{Tier1,Tier2}.tsv` (Suppl. Tables S3/S4, Additional file 1) |
+| `$OUT/annotation_enrichment/` | `annotation_enrichment_{genecentric,cpgstructural}_{CpG,DMR}_{Tier1,Tier2}.tsv` (Suppl. Tables S9/S10, Additional file 1) |
 | `$OUT/dmr_density/` | `TableS11A`–`TableS11E_*.tsv` (Suppl. Table S11) |
 | `$OUT/coverage_context/` | `TableS6B_coverage_by_context.tsv`, `TableS11F_sensitivity_by_context.tsv`, per-sample and per-CpG tables |
-| `$OUT/imprinting/` | `TableS12A`–`TableS12E_*.tsv` (Suppl. Table S12), per-gDMR summaries |
-| `$OUT/figures/*.tsv/.tab` | `Coverage_Uniformity_CV_summary.tab` (Suppl. Table S6), `Table_S7_intermediate_correlation.tsv`, `Correlation_by_methylation_stratum.tsv` |
+| `$OUT/imprinting/` | `TableS12A`–`TableS12E_*.tsv` (Suppl. Table S6), per-gDMR summaries |
+| `$OUT/figures/*.tsv/.tab` | `Coverage_Uniformity_CV_summary.tab` (Suppl. Table S4), `Table_S7_intermediate_correlation.tsv`, `Correlation_by_methylation_stratum.tsv` |
 
 ---
 

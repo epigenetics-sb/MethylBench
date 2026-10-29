@@ -4,7 +4,7 @@
 # =============================================================================
 # Pairwise Pearson correlations of CpG methylation between platforms at
 # increasing coverage thresholds, overall and per methylation stratum.
-# Figure 4; Suppl. Figures 2 and 3; Suppl. Table S7.
+# Figure 4; Suppl. Figures 2 and 3; Suppl. Table S5.
 # Platform pairs have one fixed label and colour across all plots
 # (PAIR_COLORS / scale_color_pairs() in utils/helpers.R). All figures are PNG.
 #
@@ -221,7 +221,7 @@ ggsave(p_ont_twist,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- Suppl. Figure 3, Suppl. Table S7: correlation per methylation stratum -----
+# ---- Suppl. Figure 3, Suppl. Table S5: correlation per methylation stratum -----
 
 cat("[5/6] Computing correlations per methylation stratum...\n")
 
@@ -296,7 +296,7 @@ strat_all <- rbind(strat_blood, strat_fibro, strat_giab)
 
 fwrite(strat_all, file.path(opt$outdir, "Correlation_by_methylation_stratum.tsv"), sep = "\t")
 
-# ---- Suppl. Table S7 (10x) --------------------------------------------------
+# ---- Suppl. Table S5 (10x) --------------------------------------------------
 strat_10x <- as.data.table(strat_all)[Coverage == 10]
 table_s7 <- strat_10x[, .(
   n_samples        = .N,

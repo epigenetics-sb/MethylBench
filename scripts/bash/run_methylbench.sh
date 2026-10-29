@@ -78,7 +78,7 @@ run_step() {
   fi
 }
 
-# ---- Figure 3, Suppl. Figure 1, Suppl. Table S6 - QC and coverage uniformity -
+# ---- Figure 3, Suppl. Figure 1, Suppl. Table S4 - QC and coverage uniformity -
 run_step qc \
   Rscript scripts/R/08_qc_visualization.R \
     --cpg_stats "$STATS/cpg_stats_methylbench.tab" \
@@ -86,7 +86,7 @@ run_step qc \
     --all_path  "$DATA/ALL_without_EPIC.csv" \
     --outdir    "$OUT/figures/"
 
-# ---- Figure 4, Suppl. Figures 2 and 3, Suppl. Table S7 - correlation --------
+# ---- Figure 4, Suppl. Figures 2 and 3, Suppl. Table S5 - correlation --------
 run_step correlation \
   Rscript scripts/R/09_correlation_analysis.R \
     --datadir "$DATA/" \
@@ -125,7 +125,7 @@ run_step dss \
     --outdir   "$OUT/figures/" \
     --datadir  "$OUT/dmr_dss/"
 
-# ---- Suppl. Table S2 - unpaired sensitivity run (tables only) ---------------
+# ---- Suppl. Table S7 - unpaired sensitivity run (tables only) ---------------
 run_step unpaired \
   Rscript scripts/R/13_DMR_DSS_analysis.R \
     --seq_path "$DATA/ALL_without_EPIC.csv" \
@@ -134,7 +134,7 @@ run_step unpaired \
     --datadir  "$OUT/dmr_dss_unpaired/" \
     --unpaired
 
-# ---- Suppl. Figure 9, Suppl. Table S5 - depth-matched sensitivity -----------
+# ---- Suppl. Figure 9, Suppl. Table S8 - depth-matched sensitivity -----------
 # needs BSseq_Tier1.rds, Tier1_DML.rds and Tier1_DMR.rds from step 'dss'
 run_step downsampling \
   Rscript scripts/R/14_downsampling_sensitivity.R \
@@ -144,7 +144,7 @@ run_step downsampling \
     --n_reps  "$N_REPS" \
     --cores   "$CORES"
 
-# ---- Figure 9C, Suppl. Figure 11, Suppl. Tables S3/S4 - annotation ---------
+# ---- Figure 9C, Suppl. Figure 11, Suppl. Tables S9/S10 - annotation ---------
 # needs Tier{1,2}_consensus_CpGs.tsv and the DML/DMR tables from step 'dss'
 run_step annotation_CpG \
   Rscript scripts/R/15_annotation_enrichment_background.R \
@@ -169,7 +169,7 @@ run_step dmr_probe_density \
     --outdir   "$OUT/figures/" \
     --datadir  "$OUT/dmr_density/"
 
-# ---- Suppl. Figures 1E,F and 12E, Suppl. Tables S6B and S11F ----------------
+# ---- Suppl. Figures 1E,F and 12E, Suppl. Tables S4B and S11F ----------------
 # coverage by genomic context and DMC/DMR sensitivity (needs step 'dss')
 run_step coverage_context \
   Rscript scripts/R/18_coverage_by_context.R \
@@ -178,10 +178,10 @@ run_step coverage_context \
     --outdir   "$OUT/figures/" \
     --datadir  "$OUT/coverage_context/"
 
-# ---- Suppl. Figure 4, Suppl. Table S12 - imprinted gDMRs (optional) ---------
+# ---- Suppl. Figure 4, Suppl. Table S6 - imprinted gDMRs (optional) ---------
 # needs per-platform calls (CALLS_DIR) and SAMPLESHEET; GDMR_BED defaults to the
 # gDMR list shipped with the repository. Uses the DML results from step 'dss'
-# for the DMCs located in gDMRs (Suppl. Table S12E).
+# for the DMCs located in gDMRs (Suppl. Table S6E).
 GDMR_BED="${GDMR_BED:-data/imprinted_gDMRs_hg38.bed}"
 if [[ -n "${CALLS_DIR:-}" && -n "${SAMPLESHEET:-}" && -f "$GDMR_BED" ]]; then
   imprint_args=(

@@ -21,7 +21,7 @@
 #   differences between categories (e.g. few tissue differences in CpG
 #   islands), so that differences in recall between categories reflect
 #   platform-specific sensitivity.
-# Suppl. Figures 1E,F and 12E; Suppl. Tables S6B and S11F.
+# Suppl. Figures 1E,F and 12E; Suppl. Tables S4B and S11F.
 #
 # Usage:
 #   Rscript scripts/R/18_coverage_by_context.R \
@@ -43,7 +43,7 @@ source("scripts/R/utils/helpers.R")
 
 option_list <- list(
   make_option("--all_path", type = "character", metavar = "FILE",
-              help = "ALL_without_EPIC.csv (union of all CpGs, <Method>_cov_<Sample> columns) [required]"),
+              help = "ALL_without_EPIC.csv (<Method>_cov_<Sample> columns; its CpGs form the reference set, see header) [required]"),
   make_option("--dss_dir",  type = "character", default = NULL, metavar = "DIR",
               help = "--datadir of the paired run of 13_DMR_DSS_analysis.R; enables part B"),
   make_option("--outdir",   type = "character", default = "results/figures/", metavar = "DIR"),

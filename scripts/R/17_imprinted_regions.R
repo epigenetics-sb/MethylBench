@@ -19,13 +19,13 @@
 #       and TWIST);
 #   (5) optionally, DMCs located in gDMRs in the primary analysis (internal
 #       control: no systematic blood-fibroblast difference expected).
-# Suppl. Figure 4, Suppl. Table S12 (A-E).
+# Suppl. Figure 4, Suppl. Table S6 (A-E).
 #
 # Usage:
 #   Rscript scripts/R/17_imprinted_regions.R \
 #     --samplesheet samplesheet.csv --calls_dir /path/to/calls \
 #     --epic_path EPIC_blood_fibro.tsv,EPIC_GIAB.tsv \
-#     --gdmr_bed imprinted_gDMRs_hg38.bed \
+#     --gdmr_bed data/imprinted_gDMRs_hg38.bed \
 #     --dss_dir results/dmr_dss/ --outdir results/figures/ --datadir results/imprinting/
 #
 # --calls_dir layout: <calls_dir>/<METHOD>/<Sample><suffix>; the suffixes are
@@ -351,7 +351,7 @@ consistent_gdmrs <- cons$gdmr
 cat(sprintf("  gDMRs with a consistent blood-fibroblast difference: %d (%d higher, %d lower in blood)\n",
             nrow(cons), sum(cons$direction == "higher in blood"), sum(cons$direction == "lower in blood")))
 
-# Table S12C: per platform, for all gDMRs and without the consistent ones.
+# Table S6C: per platform, for all gDMRs and without the consistent ones.
 summ_delta <- function(d) d[, .(n_pairs = .N, mean_delta = mean(delta),
                                 median_gDMR_delta = median(tapply(delta, gdmr, mean)),
                                 pct_abs_delta_ge_0.1 = 100 * mean(abs(delta) >= opt$delta_cutoff)),
@@ -362,7 +362,7 @@ tis_tab <- merge(summ_delta(tis),
 fwrite(tis_tab, file.path(opt$datadir, "TableS12C_gDMR_blood_vs_fibro.tsv"), sep = "\t")
 print(tis_tab)
 
-# Table S12D: consistent gDMRs, mean delta per platform.
+# Table S6D: consistent gDMRs, mean delta per platform.
 fwrite(cons, file.path(opt$datadir, "TableS12D_gDMR_consistent_differences.tsv"), sep = "\t")
 print(cons)
 

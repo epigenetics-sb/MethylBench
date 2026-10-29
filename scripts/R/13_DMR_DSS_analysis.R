@@ -6,7 +6,7 @@
 # sets, tests Blood vs. Fibroblast per platform with a paired Beta-Binomial
 # model (DSS; EPIC: paired limma on M-values), calls DMRs with DMRcate and
 # summarizes cross-platform concordance.
-# Figures 8, 9A/B/D; Suppl. Figures 8 and 10; with --unpaired: Suppl. Table S2.
+# Figures 8, 9A/B/D; Suppl. Figures 8 and 10; with --unpaired: Suppl. Table S7.
 #
 # Usage:
 #   Rscript scripts/R/13_DMR_DSS_analysis.R \

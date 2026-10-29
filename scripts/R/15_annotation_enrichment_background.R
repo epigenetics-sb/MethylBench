@@ -6,7 +6,7 @@
 # within DMRs) and the tested Tier 1/Tier 2 consensus background with two
 # independent annotation hierarchies (gene-centric, CpG-structural) and tests
 # enrichment with Fisher's exact test.
-# Figure 9C, Suppl. Figure 11, Suppl. Tables S3/S4.
+# Figure 9C, Suppl. Figure 11, Suppl. Tables S9/S10.
 #
 # Usage:
 #   Rscript scripts/R/15_annotation_enrichment_background.R \
