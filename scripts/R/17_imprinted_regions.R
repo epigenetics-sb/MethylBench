@@ -16,7 +16,7 @@
 #   (3) cross-platform concordance of gDMR methylation within each sample;
 #   (4) optionally, DMCs located in gDMRs in the primary analysis (negative
 #       control: no blood-fibroblast difference expected).
-# Suppl. Figure 21, Suppl. Table S12.
+# Suppl. Figure 4 (formerly 21), Suppl. Table S12.
 #
 # Usage:
 #   Rscript scripts/R/17_imprinted_regions.R \
@@ -70,16 +70,81 @@ option_list <- list(
   make_option("--min_cov",     type = "double",  default = 10),
   make_option("--min_cpgs",    type = "integer", default = 3),
   make_option("--fdr_cutoff",  type = "double",  default = 0.05),
-  make_option("--delta_cutoff",type = "double",  default = 0.1)
+  make_option("--delta_cutoff",type = "double",  default = 0.1),
+  make_option("--plot_only",   action = "store_true", default = FALSE,
+              help = "Only redraw the figure from the tables of a previous run in --datadir")
 )
 opt <- parse_args(OptionParser(option_list = option_list))
-for (a in c("samplesheet", "calls_dir", "gdmr_bed")) if (is.null(opt[[a]])) stop("--", a, " is required")
+if (!opt$plot_only) for (a in c("samplesheet", "calls_dir", "gdmr_bed")) if (is.null(opt[[a]])) stop("--", a, " is required")
 
 dir.create(opt$outdir,  recursive = TRUE, showWarnings = FALSE)
 dir.create(opt$datadir, recursive = TRUE, showWarnings = FALSE)
 
 PLATFORMS <- c("ONT", "PacBio", "RRBS", "WGEC", "TWIST", "EPIC")
 MCOL <- METHOD_COLORS[intersect(PLATFORMS, names(METHOD_COLORS))]
+
+# ---- Supplementary Figure 4 (formerly 21) ---------------------------------------
+make_figure <- function(summary_tab, per_gdmr, cpg_level) {
+  th <- theme_bw(base_size = 15) + theme(plot.title = element_text(hjust = 0.5))
+  tissue_lab <- c(Blood = "Blood", Fibro = "Fibroblast", GIAB = "GIAB")
+
+  pA <- summary_tab |>
+    mutate(Platform = factor(Platform, levels = PLATFORMS)) |>
+    ggplot(aes(Platform, pct_detectable, fill = Platform)) +
+    geom_col(width = 0.7) + scale_fill_manual(values = MCOL, guide = "none") +
+    facet_grid(~ Tissue, scales = "free_x", space = "free_x", labeller = as_labeller(tissue_lab)) +
+    labs(title = sprintf("gDMRs with >= %d CpGs at >= %gx (EPIC: probes)", opt$min_cpgs, opt$min_cov),
+         x = NULL, y = "% of gDMRs") + th +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  pB <- per_gdmr[detectable == TRUE] |>
+    mutate(Platform = factor(Platform, levels = PLATFORMS)) |>
+    ggplot(aes(Platform, beta_mean, fill = Platform)) +
+    geom_hline(yintercept = 0.5, linetype = "dashed") +
+    geom_violin(scale = "width", alpha = 0.7) + geom_boxplot(width = 0.12, outlier.size = 0.5, fill = "white") +
+    scale_fill_manual(values = MCOL, guide = "none") + coord_cartesian(ylim = c(0, 1)) +
+    facet_grid(~ Tissue, scales = "free_x", space = "free_x", labeller = as_labeller(tissue_lab)) +
+    labs(title = "Mean methylation per gDMR", x = NULL, y = expression("Mean " * beta)) + th +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  pC <- cpg_level |>
+    mutate(Platform = factor(Platform, levels = PLATFORMS)) |>
+    ggplot(aes(beta, colour = Platform)) +
+    geom_density(adjust = 1.5, linewidth = 0.9) + geom_vline(xintercept = 0.5, linetype = "dashed") +
+    scale_colour_manual(values = MCOL) +
+    scale_x_continuous(breaks = c(0, 0.5, 1), labels = c("0", "0.5", "1")) +
+    facet_wrap(~ Tissue, labeller = as_labeller(tissue_lab)) +
+    labs(title = "Per-CpG methylation within gDMRs", x = expression(beta), y = "Density", colour = NULL) +
+    th + theme(legend.position = "bottom")
+
+  heat <- per_gdmr[, .(beta = mean(beta_mean, na.rm = TRUE)), by = .(Tissue, Platform, gdmr)]
+  heat[is.nan(beta), beta := NA_real_]
+  pD <- heat |>
+    mutate(Platform = factor(Platform, levels = PLATFORMS)) |>
+    ggplot(aes(Platform, gdmr, fill = beta)) + geom_tile() +
+    scale_fill_gradient2(low = "#4575b4", mid = "white", high = "#d73027", midpoint = 0.5,
+                         limits = c(0, 1), na.value = "grey85", name = expression(beta)) +
+    facet_grid(~ Tissue, scales = "free_x", space = "free_x", labeller = as_labeller(tissue_lab)) +
+    labs(title = "Mean methylation per gDMR (grey: not detectable)", x = NULL, y = NULL) + th +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.text.y = element_text(size = 8))
+
+  p_all <- ((pA / pB / pC) | pD) + plot_annotation(tag_levels = "A") &
+    theme(plot.tag = element_text(size = 28, face = "bold"))
+  ggsave(file.path(opt$outdir, "SuppFig4_imprinted_gDMRs.png"),
+         p_all, width = 22, height = 18, dpi = 300, bg = "white")
+  invisible(NULL)
+}
+
+# --plot_only: redraw the figure from the tables of a previous run in --datadir
+if (isTRUE(opt$plot_only)) {
+  calls <- fread(file.path(opt$datadir, "gDMR_calls_long.tsv.gz"))
+  calls[, passes := fifelse(Platform == "EPIC", !is.na(beta), !is.na(cov) & cov >= opt$min_cov)]
+  make_figure(summary_tab = fread(file.path(opt$datadir, "TableS12A_gDMR_detection.tsv")),
+              per_gdmr    = fread(file.path(opt$datadir, "gDMR_per_sample_platform.tsv")),
+              cpg_level   = calls[passes == TRUE])
+  cat("Figure redrawn from ", normalizePath(opt$datadir), "\n", sep = "")
+  quit(save = "no", status = 0)
+}
 
 # ---- 1. gDMRs ------------------------------------------------------------------
 gdmr <- fread(opt$gdmr_bed, header = FALSE, select = 1:4,
@@ -148,6 +213,9 @@ read_calls <- function(platform, smp) {
     }
   }
   if (is.null(d)) return(NULL)
+  # Harmonize chromosome names to UCSC style (e.g. Ensembl "1"/"MT" -> "chr1"/"chrM").
+  d[, chr := as.character(chr)]
+  d[!startsWith(chr, "chr"), chr := paste0("chr", sub("^MT$", "M", chr))]
   d <- d[cov > 0][!duplicated(paste(chr, pos))]
   attr_src <- src
   out <- in_gdmr(d)
@@ -294,51 +362,7 @@ if (!is.null(opt$dss_dir)) {
   print(dmc_tab)
 }
 
-# ---- Supplementary Figure 21 -----------------------------------------------------
-th <- theme_bw(base_size = 15) + theme(plot.title = element_text(hjust = 0.5))
-tissue_lab <- c(Blood = "Blood", Fibro = "Fibroblast", GIAB = "GIAB")
-
-pA <- summary_tab |>
-  mutate(Platform = factor(Platform, levels = PLATFORMS)) |>
-  ggplot(aes(Platform, pct_detectable, fill = Platform)) +
-  geom_col(width = 0.7) + scale_fill_manual(values = MCOL, guide = "none") +
-  facet_grid(~ Tissue, scales = "free_x", space = "free_x", labeller = as_labeller(tissue_lab)) +
-  labs(title = sprintf("gDMRs with >= %d CpGs at >= %gx (EPIC: probes)", opt$min_cpgs, opt$min_cov),
-       x = NULL, y = "% of gDMRs") + th +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-pB <- per_gdmr[detectable == TRUE] |>
-  mutate(Platform = factor(Platform, levels = PLATFORMS)) |>
-  ggplot(aes(Platform, beta_mean, fill = Platform)) +
-  geom_hline(yintercept = 0.5, linetype = "dashed") +
-  geom_violin(scale = "width", alpha = 0.7) + geom_boxplot(width = 0.12, outlier.size = 0.5, fill = "white") +
-  scale_fill_manual(values = MCOL, guide = "none") + coord_cartesian(ylim = c(0, 1)) +
-  facet_grid(~ Tissue, scales = "free_x", space = "free_x", labeller = as_labeller(tissue_lab)) +
-  labs(title = "Mean methylation per gDMR", x = NULL, y = expression("Mean " * beta)) + th +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-pC <- cpg_level |>
-  mutate(Platform = factor(Platform, levels = PLATFORMS)) |>
-  ggplot(aes(beta, colour = Platform)) +
-  geom_density(adjust = 1.5, linewidth = 0.9) + geom_vline(xintercept = 0.5, linetype = "dashed") +
-  scale_colour_manual(values = MCOL) +
-  facet_wrap(~ Tissue, labeller = as_labeller(tissue_lab)) +
-  labs(title = "Per-CpG methylation within gDMRs", x = expression(beta), y = "Density", colour = NULL) +
-  th + theme(legend.position = "bottom")
-
-heat <- per_gdmr[, .(beta = mean(beta_mean, na.rm = TRUE)), by = .(Tissue, Platform, gdmr)]
-heat[is.nan(beta), beta := NA_real_]
-pD <- heat |>
-  mutate(Platform = factor(Platform, levels = PLATFORMS)) |>
-  ggplot(aes(Platform, gdmr, fill = beta)) + geom_tile() +
-  scale_fill_gradient2(low = "#4575b4", mid = "white", high = "#d73027", midpoint = 0.5,
-                       limits = c(0, 1), na.value = "grey85", name = expression(beta)) +
-  facet_grid(~ Tissue, scales = "free_x", space = "free_x", labeller = as_labeller(tissue_lab)) +
-  labs(title = "Mean methylation per gDMR (grey: not detectable)", x = NULL, y = NULL) + th +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.text.y = element_text(size = 8))
-
-ggsave(file.path(opt$outdir, "SuppFig21_imprinted_gDMRs.png"),
-       (pA / pB / pC) | pD, width = 22, height = 18, dpi = 300)
+make_figure(summary_tab, per_gdmr, cpg_level)
 
 writeLines(capture.output(sessionInfo()), file.path(opt$datadir, "sessionInfo.txt"))
 cat("\nDone. Tables: ", normalizePath(opt$datadir), "\n", sep = "")

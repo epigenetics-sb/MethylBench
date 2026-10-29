@@ -412,19 +412,36 @@ ggsave(p_scatter,
   height = 12, width = 14, dpi = 300
 )
 
-# Suppl. Figure 7: all ten pairs.
-p_pairs <- wrap_plots(lapply(pairs, function(p) delta_hex(p[1], p[2]) +
-                               labs(title = paste(p[1], "vs.", p[2])) +
-                               theme(plot.title = element_text(face = "bold", hjust = 0.5))),
-                      ncol = 4, guides = "collect") +
-  plot_annotation(
-    title    = bquote(Pairwise ~ Delta*beta ~ concordance ~ "on the common five-platform CpG set"),
-    subtitle = sprintf("n = %s CpGs | red dashed = identity line | r = Pearson | no statistical testing",
-                       formatC(nrow(all), big.mark = ",")),
-    theme    = theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
-                     plot.subtitle = element_text(hjust = 0.5, size = 14)))
-ggsave(p_pairs, filename = file.path(opt$outdir, "SuppFig7_DeltaBeta_pairs.png"),
-       height = 12, width = 16, dpi = 300)
+# ---- Suppl. Figure 7A: pairwise delta-beta concordance, all ten pairs --------
+# One facet_wrap, so all panels share one fill scale.
+db_long <- dcast(as.data.table(all_results), CpG ~ Method, value.var = "delta_beta")
+plats   <- intersect(PLAT_ORDER, names(db_long))
+pair_df <- rbindlist(lapply(combn(plats, 2, simplify = FALSE), function(p)
+  data.table(Pair = paste(p[1], "vs.", p[2]), x = db_long[[p[1]]], y = db_long[[p[2]]])))
+pair_df <- pair_df[!is.na(x) & !is.na(y)]
+pair_df[, Pair := factor(Pair, levels = unique(Pair))]
+r_df <- pair_df[, .(r = cor(x, y)), by = Pair]
+
+p_pairs <- ggplot(pair_df, aes(x, y)) +
+  geom_hex(bins = 80) +
+  scale_fill_viridis_c(option = "magma", trans = "log10", name = "CpGs (log10)",
+                       limits = c(1, NA)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "red") +
+  geom_text(data = r_df, aes(x = -0.95, y = 0.9, label = sprintf("r = %.2f", r)),
+            hjust = 0, size = 5, fontface = "bold", inherit.aes = FALSE) +
+  facet_wrap(~ Pair, ncol = 5) +
+  coord_equal(xlim = c(-1, 1), ylim = c(-1, 1)) +
+  labs(title = expression("Pairwise" ~ Delta*beta ~ "concordance on the common five-platform CpG set"),
+       subtitle = sprintf("n = %s CpGs | red dashed = identity line | r = Pearson | no statistical testing",
+                          formatC(nrow(all), big.mark = ",")),
+       x = expression(Delta*beta ~ "(first platform)"),
+       y = expression(Delta*beta ~ "(second platform)")) +
+  theme_bw(base_size = 16) +
+  theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5),
+        strip.text = element_text(face = "bold"))
+
+ggsave(p_pairs, filename = file.path(opt$outdir, "SuppFig7A_delta_beta_pairwise.png"),
+       width = 20, height = 9, dpi = 300, bg = "white")
 
 # ---- Within-group variance per method (Figure 7D) ---------------------------
 

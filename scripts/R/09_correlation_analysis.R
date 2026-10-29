@@ -4,7 +4,9 @@
 # =============================================================================
 # Pairwise Pearson correlations of CpG methylation between platforms at
 # increasing coverage thresholds, overall and per methylation stratum.
-# Figure 4; Suppl. Figures 2 and 19; Suppl. Table S7.
+# Figure 4; Suppl. Figures 2 and 3 (formerly 19); Suppl. Table S7.
+# Platform pairs have one fixed label and colour across all plots
+# (PAIR_COLORS / scale_color_pairs() in utils/helpers.R). All figures are PNG.
 #
 # Usage:
 #   Rscript scripts/R/09_correlation_analysis.R --datadir <matrices>/ --outdir results/figures/
@@ -16,6 +18,7 @@ suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
   library(dplyr)
+  library(patchwork)
 })
 
 source("scripts/R/utils/helpers.R")
@@ -46,11 +49,6 @@ METHODS_NO_PACBIO <- c("ONT" = "ONT", "WGEC" = "WGEC",
 METHODS_PACBIO    <- c("ONT" = "ONT", "WGEC" = "WGEC", "RRBS" = "RRBS",
                         "TWIST" = "TWIST", "PacBio" = "PacBio")
 METHODS_HIGHCOV   <- c("ONT" = "ONT", "PacBio" = "PacBio", "TWIST" = "TWIST")
-HIGHCOV_COMPARISON_COLORS <- c(
-  "ONT vs PacBio"   = "dodgerblue2",
-  "ONT vs TWIST"    = "green4",
-  "PacBio vs TWIST" = "black"
-)
 COVERAGES         <- c(0, 5, 10, 15)
 COVERAGES_HIGH    <- c(0, 5, 10, 15, 20, 25, 30, 35, 40)
 COV_MAX_PLOT      <- 15
@@ -116,9 +114,11 @@ corr_highcov_fibro <- computeCorrAcrossCoverages(
   methods   = METHODS_NO_PACBIO,
   coverages = COVERAGES
 )
+# Representative samples (Figure 4A): highest coverage per sample set; for GIAB,
+# GIAB1 (PacBio 92x vs. 38x for GIAB2).
 corr_highcov_giab <- computeCorrAcrossCoverages(
   data      = giab,
-  samples   = "GIAB2",
+  samples   = "GIAB1",
   methods   = METHODS_PACBIO,
   coverages = COVERAGES
 )
@@ -142,7 +142,7 @@ plot_corr <- function(df, ncols, title) {
   ) +
     geom_point(size = 4) +
     geom_line(aes(group = Comparison)) +
-    scale_color_manual(values = C25) +
+    scale_color_pairs() +
     facet_wrap(~sample, ncol = ncols) +
     labs(
       title = title,
@@ -185,7 +185,7 @@ ggsave(p_giab,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- Representative high-coverage samples (Blood3, Fibro4, GIAB2) -----------
+# ---- Figure 4A: representative high-coverage samples (Blood3, Fibro4, GIAB1) ---
 
 p_highcov <- plot_corr(
   corr_highcov, ncols = 3,
@@ -204,7 +204,7 @@ p_ont_twist <- ggplot(
 ) +
   geom_point(size = 4) +
   geom_line(aes(group = Comparison)) +
-  scale_color_manual(values = HIGHCOV_COMPARISON_COLORS) +
+  scale_color_pairs() +
   facet_wrap(~sample, ncol = 2) +
   scale_x_discrete(
     labels = ifelse(COVERAGES_HIGH == 0, "None", paste0(COVERAGES_HIGH, "x"))
@@ -269,7 +269,7 @@ computeStratifiedCorr <- function(data, samples, methods, coverages,
           out[[length(out) + 1]] <- data.frame(
             Sample     = smp,
             Coverage   = cov,
-            Comparison = paste(pair[1], "vs", pair[2]),
+            Comparison = pairLabel(pair[1], pair[2]),
             Stratum    = s,
             n_CpGs     = n,
             frac_CpGs  = n / length(x),
@@ -298,10 +298,6 @@ fwrite(strat_all, file.path(opt$outdir, "Correlation_by_methylation_stratum.tsv"
 
 # ---- Suppl. Table S7 (10x) --------------------------------------------------
 strat_10x <- as.data.table(strat_all)[Coverage == 10]
-# PacBio pairs are reported per dataset (GIAB1, GIAB2): the two PacBio datasets
-# differ in donor, chemistry and methylation caller.
-strat_10x[, Group := fifelse(Tissue == "GIAB" & grepl("PacBio", Comparison), Sample, Tissue)]
-
 table_s7 <- strat_10x[, .(
   n_samples        = .N,
   median_n_CpGs    = as.numeric(median(n_CpGs)),
@@ -311,7 +307,7 @@ table_s7 <- strat_10x[, .(
   Pearson_max      = round(max(Pearson,   na.rm = TRUE), 3),
   Spearman_mean    = round(mean(Spearman, na.rm = TRUE), 3),
   MAD_mean         = round(mean(MAD,      na.rm = TRUE), 3)
-), by = .(Group, Comparison, Stratum)][order(Group, Stratum, Comparison)]
+), by = .(Tissue, Comparison, Stratum)][order(Tissue, Stratum, Comparison)]
 fwrite(table_s7, file.path(opt$outdir, "Table_S7_intermediate_correlation.tsv"), sep = "\t")
 
 # Consistency check: "All" stratum vs. Figure 4 correlations.
@@ -334,17 +330,15 @@ print(table_s7[Stratum == "Intermediate",
                  frac_pct = round(mean(mean_frac_pct), 1)),
                by = Tissue])
 
-# ---- Suppl. Figure 19 (single panels) ---------------------------------------
+# ---- Suppl. Figure 3 (formerly 19): stratified correlations -----------------
 cat("[6/6] Plotting stratified correlations...\n")
 
-save_panel <- function(p, name, width, height) {
+save_panel <- function(p, name, width, height, dpi = 400) {
   ggsave(file.path(opt$outdir, paste0(name, ".png")), p,
-         width = width, height = height, dpi = 300)
-  ggsave(file.path(opt$outdir, paste0(name, ".pdf")), p,
-         width = width, height = height, device = cairo_pdf)
+         width = width, height = height, dpi = dpi, bg = "white")
 }
 
-plot_strat <- function(df) {
+plot_strat <- function(df, title = NULL) {
   df <- as.data.table(df)[, .(Pearson = mean(Pearson, na.rm = TRUE),
                               lo = min(Pearson, na.rm = TRUE),
                               hi = max(Pearson, na.rm = TRUE)),
@@ -353,16 +347,29 @@ plot_strat <- function(df) {
     geom_linerange(aes(ymin = lo, ymax = hi), alpha = 0.4, linewidth = 1.2) +
     geom_point(size = 3) +
     geom_line() +
-    scale_color_manual(values = C25) +
+    scale_color_pairs() +
     facet_wrap(~Stratum, nrow = 1, scales = "free_y", labeller = as_labeller(STRATUM_LABELS)) +
-    labs(x = "Coverage Filter", y = "Pearson correlation coefficient") +
+    labs(title = title, x = "Coverage Filter", y = "Pearson correlation coefficient") +
     guides(color = guide_legend(nrow = 2)) +
     theme_corr() +
     theme(strip.text = element_text(size = 16))
 }
 
-save_panel(plot_strat(strat_blood), "SupplFig19A_Blood", width = 16, height = 7)
-save_panel(plot_strat(strat_fibro), "SupplFig19B_Fibro", width = 16, height = 7)
-save_panel(plot_strat(strat_giab),  "SupplFig19C_GIAB",  width = 16, height = 7)
+p_sb <- plot_strat(strat_blood, "Blood (n = 5)")
+p_sf <- plot_strat(strat_fibro, "Fibroblast (n = 5)")
+p_sg <- plot_strat(strat_giab,  "GIAB (n = 2)")
+
+# Single panels
+save_panel(p_sb, "SupplFig3A_Blood", width = 16, height = 7)
+save_panel(p_sf, "SupplFig3B_Fibro", width = 16, height = 7)
+save_panel(p_sg, "SupplFig3C_GIAB",  width = 16, height = 7)
+
+# Combined figure with one shared legend (all ten pairs, fixed colours)
+p_strat_all <- (p_sb / p_sf / p_sg) +
+  plot_annotation(tag_levels = "A") +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom",
+        plot.tag = element_text(size = 30, face = "bold"))
+save_panel(p_strat_all, "SupplFig3_correlation_by_stratum", width = 16, height = 20)
 
 cat(sprintf("\n[6/6] Done. Figures and tables written to: %s\n", opt$outdir))

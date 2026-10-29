@@ -17,7 +17,7 @@
 #   (4) DMRcate parameter sensitivity on Tier 2 (all five platforms, identical
 #       CpG positions): DMR counts, CpGs per DMR, direction and pairwise
 #       base-pair- and CpG-weighted Jaccard indices.
-# Suppl. Figure 20, Suppl. Table S11.
+# Suppl. Figure 12 (formerly 20), Suppl. Table S11.
 #
 # Usage:
 #   Rscript scripts/R/16_dmr_probe_density.R --dss_dir results/dmr_dss/ \
@@ -42,7 +42,7 @@ option_list <- list(
   make_option("--dss_dir", type = "character", metavar = "DIR",
               help = "--datadir of the paired run of 13_DMR_DSS_analysis.R [required]"),
   make_option("--all_path", type = "character", default = NULL, metavar = "FILE",
-              help = "Optional ALL.csv; adds the spacing of all QC-passing EPIC probes (blood/fibroblast cohort)"),
+              help = "Optional ALL.csv; adds the spacing of the EPIC probes contained in this matrix (>= min_samples non-missing per tissue; with ALL.csv: CpGs shared by all five platforms, no coverage threshold)"),
   make_option("--outdir",  type = "character", default = "results/figures/", metavar = "DIR"),
   make_option("--datadir", type = "character", default = "results/dmr_density/", metavar = "DIR"),
   make_option("--fdr_cutoff",   type = "double",  default = 0.05),
@@ -204,7 +204,7 @@ if (!is.null(opt$all_path)) {
     cols <- grep(paste0("^EPIC_", ti), ecol, value = TRUE)
     rowSums(!is.na(as.matrix(epic[, ..cols]))) >= opt$min_samples
   }))
-  sp$EPIC_all <- spacing_stats(ids_to_gr(epic$cpg_id[keep]), "EPIC (all QC-passing probes)")
+  sp$EPIC_all <- spacing_stats(ids_to_gr(epic$cpg_id[keep]), "EPIC (five-platform matrix, no coverage threshold)")
   rm(epic); invisible(gc())
 }
 spacing_summary <- rbindlist(lapply(sp, `[[`, "summary"))
@@ -280,21 +280,34 @@ print(grid_jacc[, .(min_bp = min(Jaccard_bp, na.rm = TRUE), max_bp = max(Jaccard
                     min_cpg = min(Jaccard_CpG, na.rm = TRUE), max_cpg = max(Jaccard_CpG, na.rm = TRUE)),
                 by = .(Setting, Class)])
 
-# ---- Supplementary Figure 20 ------------------------------------------------
+# ---- Supplementary Figure 12 (formerly 20) -----------------------------------
 th <- theme_bw(base_size = 16) + theme(plot.title = element_text(hjust = 0.5))
+
+# Fixed order, short display labels and colours of the CpG sets (EPIC in its
+# platform colour; the two consensus tiers in neutral greys).
+SET_LABELS <- c("Tier 1 (sequencing consensus)"                      = "Tier 1",
+                "Tier 2 (EPIC-restricted consensus)"                 = "Tier 2",
+                "EPIC (five-platform matrix, no coverage threshold)" = "EPIC (five-platform matrix)")
+SET_COLORS <- c("Tier 1" = "black", "Tier 2" = "grey55",
+                "EPIC (five-platform matrix)" = unname(METHOD_COLORS["EPIC"]))
+relabel_set <- function(x) factor(unname(SET_LABELS[x]), levels = unname(SET_LABELS))
 
 nn_df <- rbindlist(lapply(names(sp), function(k) data.table(Set = sp[[k]]$summary$Set,
                                                            nn = sp[[k]]$per_cpg$nn_dist)))[is.finite(nn) & nn > 0]
+nn_df[, Set := relabel_set(Set)]
 pA <- ggplot(nn_df, aes(nn, colour = Set)) +
   stat_ecdf(linewidth = 1) +
   geom_vline(xintercept = c(SIGMA, LAMBDA), linetype = c("dotted", "dashed")) +
+  scale_colour_manual(values = SET_COLORS, drop = TRUE) +
   scale_x_log10(labels = scales::comma) + scale_y_continuous(labels = scales::percent) +
   labs(title = "Distance to nearest tested CpG", x = "bp (log10)", y = "Cumulative fraction", colour = NULL) +
   th + theme(legend.position = "bottom", legend.direction = "vertical")
 
-pB <- ggplot(spacing_summary, aes(Set, pct_DMR_eligible)) + geom_col(fill = "grey40", width = 0.6) +
+pB <- spacing_summary[, .(Set = relabel_set(Set), pct_DMR_eligible)] |>
+  ggplot(aes(Set, pct_DMR_eligible, fill = Set)) + geom_col(width = 0.6) +
+  scale_fill_manual(values = SET_COLORS, guide = "none") +
   labs(title = sprintf("CpGs in clusters of >= %d CpGs (gaps < %g bp)", MIN_CPGS, LAMBDA),
-       x = NULL, y = "% of tested CpGs") + th + theme(axis.text.x = element_text(angle = 20, hjust = 1))
+       x = NULL, y = "% of tested CpGs") + th
 
 pC <- dmc_tab |>
   pivot_longer(c(pct_DMC_eligible, pct_DMC_in_DMR), names_to = "metric", values_to = "pct") |>
@@ -315,7 +328,7 @@ pD <- grid_jacc |>
        y = "Base-pair-weighted Jaccard", colour = NULL) +
   th + theme(legend.position = "bottom", axis.text.x = element_text(angle = 20, hjust = 1))
 
-ggsave(file.path(opt$outdir, "SuppFig20_dmr_probe_density.png"),
+ggsave(file.path(opt$outdir, "SuppFig12_dmr_probe_density.png"),
        (pA | pB) / (pC | pD) + plot_annotation(tag_levels = "A"), width = 18, height = 14, dpi = 300)
 
 writeLines(capture.output(sessionInfo()), file.path(opt$datadir, "sessionInfo.txt"))

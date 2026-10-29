@@ -397,7 +397,7 @@ computePairwiseCorr <- function(data,
     }
 
     data.frame(
-      Comparison  = paste(m1_label, "vs", m2_label),
+      Comparison  = pairLabel(m1_label, m2_label),
       Method1     = m1_label,
       Method2     = m2_label,
       Coverage    = coverage,
@@ -431,6 +431,39 @@ C12 <- c(
   "#FF7F00",     "black",    "gold1",        "khaki2",
   "brown",       "darkturquoise", "palegreen2", "orchid1"
 )
+
+# Platform pairs: one canonical label per pair (fixed platform order, independent
+# of the order in which methods are passed) and one fixed colour per pair, so
+# that every comparison has the same label and colour in all correlation plots
+# (Figure 4, Suppl. Figures 2 and 3).
+PAIR_METHOD_ORDER <- c("ONT", "PacBio", "RRBS", "TWIST", "WGEC", "EPIC")
+
+pairLabel <- function(m1, m2) {
+  rk <- match(c(m1, m2), PAIR_METHOD_ORDER)
+  if (anyNA(rk)) stop("pairLabel: unknown platform in '", m1, "' / '", m2, "'")
+  ord <- c(m1, m2)[order(rk)]
+  paste(ord[1], "vs", ord[2])
+}
+
+PAIR_COLORS <- c(
+  "ONT vs PacBio"   = "dodgerblue2",
+  "ONT vs RRBS"     = "#E31A1C",
+  "ONT vs TWIST"    = "green4",
+  "ONT vs WGEC"     = "#6A3D9A",
+  "PacBio vs RRBS"  = "#FF7F00",
+  "PacBio vs TWIST" = "black",
+  "PacBio vs WGEC"  = "gold1",
+  "RRBS vs TWIST"   = "skyblue2",
+  "RRBS vs WGEC"    = "#FB9A99",
+  "TWIST vs WGEC"   = "palegreen3"
+)
+
+# Colour scale for platform pairs; only the pairs present in the data are
+# shown in the legend, always in the same order.
+scale_color_pairs <- function(...) {
+  scale_color_manual(values = PAIR_COLORS,
+                     limits = function(x) intersect(names(PAIR_COLORS), x), ...)
+}
 
 METHOD_COLORS <- c(
   "ONT"    = "#D69F00",
