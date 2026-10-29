@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# MethylBench - run the complete R analysis (scripts 08-17) in one go
+# MethylBench - run the complete R analysis (scripts 08-18) in one go
 # =============================================================================
 # Usage (from the repository root):
 #
@@ -16,10 +16,11 @@
 #   SKIP     space-separated step names to skip, e.g. SKIP="downsampling unpaired"
 #
 # Script 17 (imprinted gDMRs) needs per-platform methylation calls instead of
-# the merged matrices and runs only if these variables are set:
+# the merged matrices and runs only if CALLS_DIR and SAMPLESHEET are set:
 #   CALLS_DIR    directory with per-platform calls, <CALLS_DIR>/<METHOD>/<Sample><suffix>
 #   SAMPLESHEET  sample sheet (comma-separated; columns Sample, Sampleset)
 #   GDMR_BED     BED file of imprinted gDMRs (hg38, 0-based; chr, start, end, name)
+#                [default: data/imprinted_gDMRs_hg38.bed, shipped with the repository]
 #   EPIC_TSV     optional: comma-separated EPIC beta matrices (column 'coord' = chr:pos)
 #
 # Every step writes a log to $OUT/logs/<step>.log. The script stops at the
@@ -77,7 +78,7 @@ run_step() {
   fi
 }
 
-# ---- Figure 3, Suppl. Figure 16, Suppl. Table S6 - QC and coverage uniformity
+# ---- Figure 3, Suppl. Figure 1, Suppl. Table S6 - QC and coverage uniformity -
 run_step qc \
   Rscript scripts/R/08_qc_visualization.R \
     --cpg_stats "$STATS/cpg_stats_methylbench.tab" \
@@ -85,20 +86,20 @@ run_step qc \
     --all_path  "$DATA/ALL_without_EPIC.csv" \
     --outdir    "$OUT/figures/"
 
-# ---- Figure 4, Suppl. Figures 2 and 19, Suppl. Table S7 - correlation -------
+# ---- Figure 4, Suppl. Figures 2 and 3, Suppl. Table S7 - correlation --------
 run_step correlation \
   Rscript scripts/R/09_correlation_analysis.R \
     --datadir "$DATA/" \
     --outdir  "$OUT/figures/"
 
-# ---- Figure 5, Suppl. Figures 3 and 4 - methylation density -----------------
+# ---- Figure 5, Suppl. Figure 5 - methylation density ------------------------
 run_step density \
   Rscript scripts/R/10_density_plots.R \
     --datadir   "$DATA/" \
     --outdir    "$OUT/figures/" \
     --epic_path "$DATA/ALL.csv"
 
-# ---- Figure 6, Suppl. Figure 1 - PCA ----------------------------------------
+# ---- Figure 6, Suppl. Figure 6 - PCA ----------------------------------------
 run_step pca \
   Rscript scripts/R/11_pca.R \
     --all_path   "$DATA/ALL.csv" \
@@ -107,7 +108,7 @@ run_step pca \
     --giab_path  "$DATA/GIAB_without_EPIC.csv" \
     --outdir     "$OUT/figures/"
 
-# ---- Figure 7, Suppl. Figures 6-8 - measurement properties (no testing) ----
+# ---- Figure 7, Suppl. Figure 7 - measurement properties (no testing) -------
 run_step common_set \
   Rscript scripts/R/12_differential_methylation.R \
     --all_path   "$DATA/ALL.csv" \
@@ -116,7 +117,7 @@ run_step common_set \
     --outdir     "$OUT/figures/" \
     --datadir    "$OUT/diff_meth/"
 
-# ---- Figures 8, 9A/B/D, Suppl. Figures 12-15 - paired DSS / DMRcate ---------
+# ---- Figures 8, 9A/B/D, Suppl. Figures 8 and 10 - paired DSS / DMRcate ------
 run_step dss \
   Rscript scripts/R/13_DMR_DSS_analysis.R \
     --seq_path "$DATA/ALL_without_EPIC.csv" \
@@ -133,7 +134,7 @@ run_step unpaired \
     --datadir  "$OUT/dmr_dss_unpaired/" \
     --unpaired
 
-# ---- Suppl. Figure 17, Suppl. Table S5 - depth-matched sensitivity ----------
+# ---- Suppl. Figure 9, Suppl. Table S5 - depth-matched sensitivity -----------
 # needs BSseq_Tier1.rds, Tier1_DML.rds and Tier1_DMR.rds from step 'dss'
 run_step downsampling \
   Rscript scripts/R/14_downsampling_sensitivity.R \
@@ -143,7 +144,7 @@ run_step downsampling \
     --n_reps  "$N_REPS" \
     --cores   "$CORES"
 
-# ---- Figure 9C, Suppl. Figures 9 and 18, Suppl. Tables S3/S4 - annotation ---
+# ---- Figure 9C, Suppl. Figure 11, Suppl. Tables S3/S4 - annotation ---------
 # needs Tier{1,2}_consensus_CpGs.tsv and the DML/DMR tables from step 'dss'
 run_step annotation_CpG \
   Rscript scripts/R/15_annotation_enrichment_background.R \
@@ -159,7 +160,7 @@ run_step annotation_DMR \
     --datadir "$OUT/annotation_enrichment/" \
     --level   DMR
 
-# ---- Suppl. Figure 20, Suppl. Table S11 - probe density and DMR calling ----
+# ---- Suppl. Figure 12, Suppl. Table S11 - probe density and DMR calling ----
 # needs the Tier 1/Tier 2 consensus sets and DML/DMR results from step 'dss'
 run_step dmr_probe_density \
   Rscript scripts/R/16_dmr_probe_density.R \
@@ -168,10 +169,21 @@ run_step dmr_probe_density \
     --outdir   "$OUT/figures/" \
     --datadir  "$OUT/dmr_density/"
 
-# ---- Suppl. Figure 21, Suppl. Table S12 - imprinted gDMRs (optional) --------
-# needs per-platform calls (CALLS_DIR), SAMPLESHEET and GDMR_BED; uses the
-# DML results from step 'dss' for the negative control (Suppl. Table S12D)
-if [[ -n "${CALLS_DIR:-}" && -n "${SAMPLESHEET:-}" && -n "${GDMR_BED:-}" ]]; then
+# ---- Suppl. Figures 1E,F and 12E, Suppl. Tables S6B and S11F ----------------
+# coverage by genomic context and DMC/DMR sensitivity (needs step 'dss')
+run_step coverage_context \
+  Rscript scripts/R/18_coverage_by_context.R \
+    --all_path "$DATA/ALL_without_EPIC.csv" \
+    --dss_dir  "$OUT/dmr_dss/" \
+    --outdir   "$OUT/figures/" \
+    --datadir  "$OUT/coverage_context/"
+
+# ---- Suppl. Figure 4, Suppl. Table S12 - imprinted gDMRs (optional) ---------
+# needs per-platform calls (CALLS_DIR) and SAMPLESHEET; GDMR_BED defaults to the
+# gDMR list shipped with the repository. Uses the DML results from step 'dss'
+# for the DMCs located in gDMRs (Suppl. Table S12E).
+GDMR_BED="${GDMR_BED:-data/imprinted_gDMRs_hg38.bed}"
+if [[ -n "${CALLS_DIR:-}" && -n "${SAMPLESHEET:-}" && -f "$GDMR_BED" ]]; then
   imprint_args=(
     --samplesheet "$SAMPLESHEET"
     --calls_dir   "$CALLS_DIR"
@@ -183,7 +195,7 @@ if [[ -n "${CALLS_DIR:-}" && -n "${SAMPLESHEET:-}" && -n "${GDMR_BED:-}" ]]; the
   if [[ -n "${EPIC_TSV:-}" ]]; then imprint_args+=(--epic_path "$EPIC_TSV"); fi
   run_step imprinting Rscript scripts/R/17_imprinted_regions.R "${imprint_args[@]}"
 else
-  echo "[skip] imprinting (set CALLS_DIR, SAMPLESHEET and GDMR_BED to run script 17)"
+  echo "[skip] imprinting (set CALLS_DIR and SAMPLESHEET, and GDMR_BED if not using data/imprinted_gDMRs_hg38.bed, to run script 17)"
 fi
 
 echo "[$(date '+%H:%M:%S')] MethylBench analysis finished. Results: $OUT"

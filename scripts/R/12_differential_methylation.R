@@ -7,7 +7,7 @@
 # per platform and its pairwise concordance, per-CpG coverage and within-group
 # variance. Differential methylation testing is done in 13_DMR_DSS_analysis.R
 # (DSS for sequencing data, limma on M-values for EPIC).
-# Figure 7; Suppl. Figures 6-8.
+# Figure 7; Suppl. Figure 7.
 #
 # Usage:
 #   Rscript scripts/R/12_differential_methylation.R --all_path ALL.csv \
@@ -194,7 +194,7 @@ cat(sprintf("  Delta-beta table: %d rows\n", nrow(all_results)))
 
 cat("[4/6] Generating figures...\n")
 
-# ---- Delta-beta density (Suppl. Figure 6) -----------------------------------
+# ---- Delta-beta density (Suppl. Figure 7B) ----------------------------------
 
 p_db <- ggplot(all_results, aes(x = delta_beta, color = Method)) +
   geom_density(alpha = 0.4, linewidth = 1.5) +
@@ -214,7 +214,7 @@ ggsave(p_db,
   height = 12, width = 14, dpi = 300
 )
 
-# ---- Heatmaps of the most variable CpGs (Suppl. Figure 8) -------------------
+# ---- Heatmaps of the most variable CpGs (Suppl. Figure 7C-E) ----------------
 cat("\n[Diagnostics] CpGs per method on the common set:\n")
 print(table(all_results$Method))
 
@@ -333,7 +333,7 @@ make_heatmap(500,  "Heatmap_top500.png")
 make_heatmap(1000, "Heatmap_top1000.png")
 make_heatmap(5000, "Heatmap_top5000.png")
 
-# ---- Pairwise delta-beta concordance (Figure 7A, 7B; Suppl. Figure 7) -------
+# ---- Pairwise delta-beta concordance (Figure 7A, 7B) ------------------------
 
 PLAT_ORDER <- c("EPIC", "TWIST", "WGEC", "RRBS", "ONT")
 db_wide    <- mat_wide_all[, intersect(PLAT_ORDER, colnames(mat_wide_all)), drop = FALSE]

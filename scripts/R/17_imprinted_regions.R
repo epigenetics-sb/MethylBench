@@ -14,9 +14,12 @@
 #   (2) accuracy/precision: mean beta per gDMR (expected ~0.5), spread of
 #       per-CpG beta values within gDMRs;
 #   (3) cross-platform concordance of gDMR methylation within each sample;
-#   (4) optionally, DMCs located in gDMRs in the primary analysis (negative
-#       control: no blood-fibroblast difference expected).
-# Suppl. Figure 4 (formerly 21), Suppl. Table S12.
+#   (4) blood-fibroblast differences within individuals, including the gDMRs
+#       with a consistent difference (>= 0.1, same direction in ONT, WGEC
+#       and TWIST);
+#   (5) optionally, DMCs located in gDMRs in the primary analysis (internal
+#       control: no systematic blood-fibroblast difference expected).
+# Suppl. Figure 4, Suppl. Table S12 (A-E).
 #
 # Usage:
 #   Rscript scripts/R/17_imprinted_regions.R \
@@ -83,7 +86,7 @@ dir.create(opt$datadir, recursive = TRUE, showWarnings = FALSE)
 PLATFORMS <- c("ONT", "PacBio", "RRBS", "WGEC", "TWIST", "EPIC")
 MCOL <- METHOD_COLORS[intersect(PLATFORMS, names(METHOD_COLORS))]
 
-# ---- Supplementary Figure 4 (formerly 21) ---------------------------------------
+# ---- Supplementary Figure 4 -----------------------------------------------------
 make_figure <- function(summary_tab, per_gdmr, cpg_level) {
   th <- theme_bw(base_size = 15) + theme(plot.title = element_text(hjust = 0.5))
   tissue_lab <- c(Blood = "Blood", Fibro = "Fibroblast", GIAB = "GIAB")
@@ -329,11 +332,58 @@ bf <- per_gdmr[Tissue %in% c("Blood", "Fibro") & detectable == TRUE]
 bf[, subject := sub("^(Blood|Fibro)", "", Sample)]
 tis <- dcast(bf, Platform + gdmr + subject ~ Tissue, value.var = "beta_mean")
 if (!all(c("Blood", "Fibro") %in% names(tis))) tis[, setdiff(c("Blood", "Fibro"), names(tis)) := NA_real_]
-tis_tab <- tis[!is.na(Blood) & !is.na(Fibro),
-               .(n_pairs = .N, mean_delta = mean(Blood - Fibro),
-                 pct_abs_delta_ge_0.1 = 100 * mean(abs(Blood - Fibro) >= 0.1)), by = Platform]
+tis <- tis[!is.na(Blood) & !is.na(Fibro)]
+tis[, delta := Blood - Fibro]
+
+# Mean difference per gDMR and platform (over individuals).
+gdmr_delta <- tis[, .(mean_delta = mean(delta)), by = .(gdmr, Platform)]
+gdmr_delta_w <- dcast(gdmr_delta, gdmr ~ Platform, value.var = "mean_delta")
+
+# gDMRs with a consistent blood-fibroblast difference: |mean delta| >= 0.1 in the
+# same direction in ONT, WGEC and TWIST (the three platforms that cover all gDMRs).
+CONS_PLATS <- intersect(c("ONT", "WGEC", "TWIST"), names(gdmr_delta_w))
+cons <- gdmr_delta_w[complete.cases(gdmr_delta_w[, ..CONS_PLATS])]
+cons <- cons[apply(cons[, ..CONS_PLATS], 1, function(x)
+  all(abs(x) >= opt$delta_cutoff) && length(unique(sign(x))) == 1)]
+cons[, direction := fifelse(get(CONS_PLATS[1]) > 0, "higher in blood", "lower in blood")]
+setorderv(cons, c("direction", CONS_PLATS[1]), c(1, -1))
+consistent_gdmrs <- cons$gdmr
+cat(sprintf("  gDMRs with a consistent blood-fibroblast difference: %d (%d higher, %d lower in blood)\n",
+            nrow(cons), sum(cons$direction == "higher in blood"), sum(cons$direction == "lower in blood")))
+
+# Table S12C: per platform, for all gDMRs and without the consistent ones.
+summ_delta <- function(d) d[, .(n_pairs = .N, mean_delta = mean(delta),
+                                median_gDMR_delta = median(tapply(delta, gdmr, mean)),
+                                pct_abs_delta_ge_0.1 = 100 * mean(abs(delta) >= opt$delta_cutoff)),
+                            by = Platform]
+tis_tab <- merge(summ_delta(tis),
+                 summ_delta(tis[!gdmr %in% consistent_gdmrs]),
+                 by = "Platform", suffixes = c("_all", "_without_consistent"))
 fwrite(tis_tab, file.path(opt$datadir, "TableS12C_gDMR_blood_vs_fibro.tsv"), sep = "\t")
 print(tis_tab)
+
+# Table S12D: consistent gDMRs, mean delta per platform.
+fwrite(cons, file.path(opt$datadir, "TableS12D_gDMR_consistent_differences.tsv"), sep = "\t")
+print(cons)
+
+# EPIC versus TWIST: fraction of gDMRs at which the blood-fibroblast difference
+# measured by EPIC is lower than that measured by TWIST.
+if (all(c("EPIC", "TWIST") %in% names(gdmr_delta_w))) {
+  et <- gdmr_delta_w[!is.na(EPIC) & !is.na(TWIST)]
+  cat(sprintf("  Blood-fibroblast difference EPIC < TWIST at %d of %d gDMRs covered by both (%.0f%%)\n",
+              sum(et$EPIC < et$TWIST), nrow(et), 100 * mean(et$EPIC < et$TWIST)))
+}
+
+# gDMRs whose consensus methylation (mean of ONT, WGEC and TWIST) lies between
+# 0.35 and 0.65 in every sample group.
+grp <- per_gdmr[detectable == TRUE & Platform %in% CONS_PLATS,
+                .(beta = mean(beta_mean)), by = .(gdmr, Tissue, Platform)]
+grp <- grp[, .(consensus = mean(beta), n_plat = .N), by = .(gdmr, Tissue)]
+in_range <- grp[n_plat == length(CONS_PLATS),
+                .(all_in_range = .N == uniqueN(per_gdmr$Tissue) && all(consensus >= 0.35 & consensus <= 0.65)),
+                by = gdmr]
+cat(sprintf("  gDMRs with consensus methylation 0.35-0.65 in all sample groups: %d of %d\n",
+            sum(in_range$all_in_range), uniqueN(per_gdmr$gdmr)))
 
 # ---- 5. DMCs in gDMRs (primary analysis) -------------------------------------------
 if (!is.null(opt$dss_dir)) {
@@ -358,7 +408,7 @@ if (!is.null(opt$dss_dir)) {
                  pct_DMC_genomewide = 100 * mean(sig))
     }))
   }))
-  fwrite(dmc_tab, file.path(opt$datadir, "TableS12D_DMCs_in_gDMRs.tsv"), sep = "\t")
+  fwrite(dmc_tab, file.path(opt$datadir, "TableS12E_DMCs_in_gDMRs.tsv"), sep = "\t")
   print(dmc_tab)
 }
 

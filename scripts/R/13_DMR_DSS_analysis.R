@@ -6,7 +6,7 @@
 # sets, tests Blood vs. Fibroblast per platform with a paired Beta-Binomial
 # model (DSS; EPIC: paired limma on M-values), calls DMRs with DMRcate and
 # summarizes cross-platform concordance.
-# Figures 8, 9A/B/D; Suppl. Figures 12-15; with --unpaired: Suppl. Table S2.
+# Figures 8, 9A/B/D; Suppl. Figures 8 and 10; with --unpaired: Suppl. Table S2.
 #
 # Usage:
 #   Rscript scripts/R/13_DMR_DSS_analysis.R \
@@ -905,9 +905,9 @@ write_jaccard(jaccard_dmr_t2, file.path(opt$datadir, "DMRcate_DMR_Jaccard_Tier2.
 plot_jaccard_heatmap(jaccard_dmr_t1, "Tier1", METHOD_COLORS, "DMR")
 plot_jaccard_heatmap(jaccard_dmr_t2, "Tier2", METHOD_COLORS_EPIC, "DMR")
 
-# ---- 8. Supplementary Figure 15 -- threshold-free rank-recovery (ROC/AUC) ----
+# ---- 8. Supplementary Figure 8B-E -- threshold-free rank recovery (ROC/AUC) --
 
-cat("[8/8] Generating Supplementary Figure 15 (rank-recovery ROC/AUC)...\n")
+cat("[8/8] Generating Supplementary Figure 8B-E (rank-recovery ROC/AUC)...\n")
 
 # Fast exact ROC/AUC from one sort (O(n log n)).
 fast_roc <- function(labels, score, grid = seq(0, 1, by = 0.001)) {

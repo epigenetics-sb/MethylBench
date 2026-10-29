@@ -9,7 +9,7 @@
 # Linux-64 environment use envs/methylbench_linux-64_explicit.txt instead:
 #   conda create --name methylbench --file envs/methylbench_linux-64_explicit.txt
 #
-# Covers 05_parse_toulligqc.py and all R scripts (06-15).
+# Covers 05_parse_toulligqc.py and all R scripts (06-18).
 # Not included:
 #   - modkit, ToulligQC  -> envs/ont.yml
 #   - pb-CpG-tools       -> envs/pacbio.yml

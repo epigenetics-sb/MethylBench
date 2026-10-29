@@ -5,7 +5,7 @@
 # PCA per tissue with sample-platform profiles as observations and CpGs as
 # variables (centered, not scaled); sample scores are plotted.
 # Figure 6 (A/B: with EPIC; C/D: sequencing, >= 10x; E/F: sequencing on the
-# EPIC CpG set) and Suppl. Figure 1 (GIAB, unfiltered and >= 10x).
+# EPIC CpG set) and Suppl. Figure 6 (GIAB, unfiltered and >= 10x).
 #
 # Usage:
 #   Rscript scripts/R/11_pca.R --all_path ALL.csv \
@@ -235,9 +235,9 @@ fb_10x       <- fb_10x[complete.cases(fb_10x)]
 res <- runPCA(fb_10x, label = "Fibro without EPIC (10x, all CpGs)")
 plot_pca(res$pca_mat, res$var_expl, "PCA_Fibro_noEPIC.png")
 
-# ---- 4. Suppl. Figure 1: GIAB, unfiltered and >= 10x ------------------------
+# ---- 4. Suppl. Figure 6: GIAB, unfiltered and >= 10x ------------------------
 
-cat("[4/4] Running GIAB PCA (Supplementary Figure 1, five sequencing methods incl. PacBio)...\n")
+cat("[4/4] Running GIAB PCA (Supplementary Figure 6, five sequencing methods incl. PacBio)...\n")
 
 giab_meth_cols <- meth_cols(SEQ_METHODS_GIAB, GIAB_IDS)
 giab_meth_cols <- intersect(giab_meth_cols, colnames(giab))

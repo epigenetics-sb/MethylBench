@@ -5,7 +5,7 @@
 # Caps per-CpG coverage of all sequencing platforms on Tier 1 at a common target
 # depth T (default: lowest platform median) by hypergeometric downsampling and
 # repeats the paired DSS + DMRcate analysis of 13_DMR_DSS_analysis.R.
-# Suppl. Figure 17, Suppl. Table S5.
+# Suppl. Figure 9, Suppl. Table S5.
 #
 # Usage:
 #   Rscript scripts/R/14_downsampling_sensitivity.R --dss_dir results/dmr_dss/ \
@@ -260,9 +260,9 @@ print(s5_pairs, digits = 3)
   pw_tab    <- fread(file.path(opt$datadir, "downsampling_pairwise.tsv"))
 }
 
-# ---- 5. Supplementary Figure 17 (single panels) -----------------------------
+# ---- 5. Supplementary Figure 9 (single panels) -----------------------------
 
-cat("[5/5] Generating Supplementary Figure 17 panels...\n")
+cat("[5/5] Generating Supplementary Figure 9 panels...\n")
 
 COND_LEVELS <- c("Before", "After")
 COND_LABELS <- c(Before = "Before depth matching",
@@ -303,7 +303,7 @@ pA <- ggplot(cov_df, aes(Platform, Coverage, fill = Condition)) +
   scale_fill_manual(values = COND_COL, labels = COND_LABELS) +
   labs(title = "Per-CpG coverage", x = NULL, y = "Coverage (log10 scale)") +
   panel_theme + theme(axis.text.x = element_text(colour = MCOL[METHODS]))
-save_panel(pA, "SupplFig17A_coverage")
+save_panel(pA, "SupplFig9A_coverage")
 
 count_long <- function(before, after, after_sd) {
   d <- rbind(count_tab[, .(Platform, Condition = "Before", Value = get(before), SD = NA_real_)],
@@ -323,9 +323,9 @@ count_plot <- function(d, ylab, title) {
     panel_theme + theme(axis.text.x = element_text(colour = MCOL[METHODS]))
 }
 save_panel(count_plot(count_long("DMCs_before", "DMCs_after", "DMCs_after_sd"), "#DMCs", "Number of DMCs"),
-           "SupplFig17B_DMC_counts")
+           "SupplFig9B_DMC_counts")
 save_panel(count_plot(count_long("DMRs_before", "DMRs_after", "DMRs_after_sd"), "#DMRs", "Number of DMRs"),
-           "SupplFig17C_DMR_counts")
+           "SupplFig9C_DMR_counts")
 
 pair_plot <- function(metric, sd_col, ylab, title) {
   d <- pw_tab[, .(Pair, Condition, Value = get(metric),
@@ -341,11 +341,11 @@ pair_plot <- function(metric, sd_col, ylab, title) {
 }
 save_panel(pair_plot("Pearson_r", "Pearson_r_sd",
                      expression(paste("Pearson ", italic(r), " (", Delta*beta, ")")),
-                     "CpG-level effect-size concordance"), "SupplFig17D_deltabeta_r")
+                     "CpG-level effect-size concordance"), "SupplFig9D_deltabeta_r")
 save_panel(pair_plot("DMR_Jaccard", "DMR_Jaccard_sd", "Base-pair-weighted Jaccard index",
-                     "DMR-level overlap"), "SupplFig17E_DMR_jaccard")
+                     "DMR-level overlap"), "SupplFig9E_DMR_jaccard")
 save_panel(pair_plot("DMC_Jaccard", "DMC_Jaccard_sd", "Jaccard index",
-                     "DMC-level overlap"), "SupplFig17F_DMC_jaccard")
+                     "DMC-level overlap"), "SupplFig9F_DMC_jaccard")
 
 if (!opt$plot_only) writeLines(capture.output(sessionInfo()), file.path(opt$datadir, "sessionInfo.txt"))
 cat("\nDone.\n")

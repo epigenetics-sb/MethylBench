@@ -5,7 +5,7 @@
 # QC metrics per sample and platform (coverage, mean methylation, overlapping
 # CpGs, read length, unique reads) and, with --all_path, per-CpG coverage
 # uniformity (coverage normalized to the sample mean; density, ECDF and CV).
-# Figure 3; Suppl. Figure 16 and Suppl. Table S6.
+# Figure 3; Suppl. Figure 1 and Suppl. Table S6.
 #
 # Usage:
 #   Rscript scripts/R/08_qc_visualization.R --cpg_stats cpg_stats_methylbench.tab \
@@ -42,7 +42,7 @@ option_list <- list(
   make_option("--all_path",
     type    = "character",
     default = NULL,
-    help    = "Optional: merged CpG-level matrix with <Method>_cov_<Sample> columns (e.g. ALL_without_EPIC.csv) for the per-CpG coverage uniformity analysis (Suppl. Figure 16, Suppl. Table S6). Skipped if not provided.",
+    help    = "Optional: merged CpG-level matrix with <Method>_cov_<Sample> columns (e.g. ALL_without_EPIC.csv) for the per-CpG coverage uniformity analysis (Suppl. Figure 1C,D, Suppl. Table S6). Skipped if not provided.",
     metavar = "FILE"
   )
 )
@@ -393,7 +393,7 @@ ggsave(p_unique,
   height = 10, width = 10, dpi = 300
 )
 
-# ---- Per-CpG coverage uniformity (Suppl. Figure 16, Suppl. Table S6) --------
+# ---- Per-CpG coverage uniformity (Suppl. Figure 1C,D, Suppl. Table S6) ------
 
 # Coverage is normalized to each sample's mean so that uniformity, not depth,
 # is compared; CV = SD / mean per sample, averaged per platform and tissue.

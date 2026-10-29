@@ -4,7 +4,7 @@
 # =============================================================================
 # Ridge plots of per-CpG methylation per sample and platform, unfiltered and
 # after coverage filtering; optionally including EPIC (--epic_path).
-# Figure 5; Suppl. Figures 3 and 4.
+# Figure 5; Suppl. Figure 5.
 #
 # Usage:
 #   Rscript scripts/R/10_density_plots.R --datadir <matrices>/ \

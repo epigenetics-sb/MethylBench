@@ -17,7 +17,7 @@
 #   (4) DMRcate parameter sensitivity on Tier 2 (all five platforms, identical
 #       CpG positions): DMR counts, CpGs per DMR, direction and pairwise
 #       base-pair- and CpG-weighted Jaccard indices.
-# Suppl. Figure 12 (formerly 20), Suppl. Table S11.
+# Suppl. Figure 12, Suppl. Table S11.
 #
 # Usage:
 #   Rscript scripts/R/16_dmr_probe_density.R --dss_dir results/dmr_dss/ \
@@ -280,7 +280,7 @@ print(grid_jacc[, .(min_bp = min(Jaccard_bp, na.rm = TRUE), max_bp = max(Jaccard
                     min_cpg = min(Jaccard_CpG, na.rm = TRUE), max_cpg = max(Jaccard_CpG, na.rm = TRUE)),
                 by = .(Setting, Class)])
 
-# ---- Supplementary Figure 12 (formerly 20) -----------------------------------
+# ---- Supplementary Figure 12 -----------------------------------
 th <- theme_bw(base_size = 16) + theme(plot.title = element_text(hjust = 0.5))
 
 # Fixed order, short display labels and colours of the CpG sets (EPIC in its
