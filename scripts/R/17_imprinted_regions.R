@@ -28,6 +28,8 @@
 #     --gdmr_bed data/imprinted_gDMRs_hg38.bed \
 #     --dss_dir results/dmr_dss/ --outdir results/figures/ --datadir results/imprinting/
 #
+# --calls_sheet: table with columns Sample, Method, File (as for
+#   07b_build_matrices.R), or
 # --calls_dir layout: <calls_dir>/<METHOD>/<Sample><suffix>; the suffixes are
 #   options (defaults in brackets). Each raw format is read with its own reader:
 #   ONT     modkit pileup bedMethyl, --cpg --combine-strands, 0-based [_modkit_pileup.bed]
@@ -39,10 +41,12 @@
 #           1-based, per strand [.methylation.tab]; used whenever present,
 #           otherwise the Bismark file of the sample is read
 #   PacBio  pb-CpG-tools combined BED, 0-based [.combined.bed]
-# All positions are converted to 1-based CpG positions (C of the + strand).
+# All positions are 0-based positions of the C on the + strand (BED convention).
 # --epic_path: EPIC beta matrices (tab or comma) with a 'coord' column (chr:pos)
-#   or 'chr' and 'start' columns (1-based C position),
-#   and one column per sample named EPIC_<Sample>, as joined in buildMergedMatrix().
+#   or 'chr' and 'start' columns, 0-based position of the C as in the merged
+#   matrices (--epic_one_based for 1-based files); probes at the same position
+#   are averaged,
+#   and one column per sample named EPIC_<Sample> (as for 07b_build_matrices.R).
 # --gdmr_bed: BED (hg38, 0-based) with columns chr, start, end, name.
 # =============================================================================
 
@@ -60,7 +64,9 @@ source("scripts/R/utils/helpers.R")
 
 option_list <- list(
   make_option("--samplesheet", type = "character", help = "Sample sheet (columns Sample, Sampleset) [required]"),
-  make_option("--calls_dir",   type = "character", help = "Directory with per-platform methylation calls [required]"),
+  make_option("--calls_dir",   type = "character", default = NULL, help = "Directory with per-platform methylation calls"),
+  make_option("--calls_sheet", type = "character", default = NULL,
+              help = "Table with columns Sample, Method, File (alternative to --calls_dir)"),
   make_option("--epic_path",   type = "character", default = NULL, help = "Comma-separated EPIC beta matrices (optional)"),
   make_option("--gdmr_bed",    type = "character", help = "BED file of imprinted gDMRs, hg38 [required]"),
   make_option("--dss_dir",     type = "character", default = NULL, help = "--datadir of 13_DMR_DSS_analysis.R (optional)"),
@@ -74,11 +80,16 @@ option_list <- list(
   make_option("--min_cpgs",    type = "integer", default = 3),
   make_option("--fdr_cutoff",  type = "double",  default = 0.05),
   make_option("--delta_cutoff",type = "double",  default = 0.1),
+  make_option("--epic_one_based", action = "store_true", default = FALSE,
+              help = "EPIC positions are 1-based (default: 0-based, as in the merged matrices)"),
   make_option("--plot_only",   action = "store_true", default = FALSE,
               help = "Only redraw the figure from the tables of a previous run in --datadir")
 )
 opt <- parse_args(OptionParser(option_list = option_list))
-if (!opt$plot_only) for (a in c("samplesheet", "calls_dir", "gdmr_bed")) if (is.null(opt[[a]])) stop("--", a, " is required")
+if (!opt$plot_only) {
+  for (a in c("samplesheet", "gdmr_bed")) if (is.null(opt[[a]])) stop("--", a, " is required")
+  if (is.null(opt$calls_dir) == is.null(opt$calls_sheet)) stop("give exactly one of --calls_dir and --calls_sheet")
+}
 
 dir.create(opt$outdir,  recursive = TRUE, showWarnings = FALSE)
 dir.create(opt$datadir, recursive = TRUE, showWarnings = FALSE)
@@ -152,77 +163,34 @@ if (isTRUE(opt$plot_only)) {
 # ---- 1. gDMRs ------------------------------------------------------------------
 gdmr <- fread(opt$gdmr_bed, header = FALSE, select = 1:4,
               col.names = c("chr", "start", "end", "gdmr"))
-gdmr[, start := start + 1L]                    # BED 0-based -> 1-based
+gdmr[, end := end - 1L]                        # BED half-open -> closed, 0-based positions
 if (anyDuplicated(gdmr$gdmr)) gdmr[, gdmr := make.unique(gdmr)]
 setkey(gdmr, chr, start, end)
 cat(sprintf("[1/5] %d imprinted gDMRs (median width %d bp)\n", nrow(gdmr), as.integer(median(gdmr$end - gdmr$start + 1))))
 
 in_gdmr <- function(dt) {
   dt <- dt[chr %in% gdmr$chr]
-  dt[, `:=`(start = pos, end = pos)]
+  dt[, `:=`(pos = start, end = start)]
   ov <- foverlaps(dt, gdmr, by.x = c("chr", "start", "end"), nomatch = NULL)
   ov[, .(gdmr, chr, pos, cov, beta)]
 }
 
 # ---- 2. Per-platform calls restricted to gDMRs ---------------------------------
-# One reader per raw format; output: chr, pos (1-based CpG position), cov, beta.
+# Readers for all raw formats: readPlatformCalls() in utils/helpers.R (shared
+# with 07b_build_matrices.R); all positions are 0-based (BED convention), as in
+# the merged matrices and the DSS output. Output: gdmr, chr, pos, cov, beta.
+suffixes <- list(ONT = opt$ont_suffix, BISMARK = opt$bismark_suffix,
+                 RRBS = opt$rrbs_suffix, PacBio = opt$pacbio_suffix)
 
-call_path <- function(platform, smp, suffix) file.path(opt$calls_dir, platform, paste0(smp, suffix))
-
-# Bismark coverage files: per-strand .cov (end == start, 1-based) are merged to
-# CpGs as in buildMergedMatrix(); coverage2cytosine --merge_CpG output
-# (end - start == 1: 1-based; == 2: 0-based) is already merged.
-read_bismark <- function(p) {
-  d <- fread(p, header = FALSE, sep = "\t")
-  if (ncol(d) != 6L) stop("Bismark file with ", ncol(d), " columns (expected 6): ", p)
-  setnames(d, c("chr", "start", "end", "percentage", "count_meth", "count_unmeth"))
-  w <- unique(d$end - d$start)
-  if (identical(w, 0L) || all(w == 0)) {
-    d <- mergeCpGStrands(d[, .(chr, start, count_meth, count_unmeth)])
-    d[, pos := start]
-  } else if (all(w == 1)) {
-    d[, pos := start]
-  } else if (all(w == 2)) {
-    d[, pos := start + 1L]
-  } else stop("Unexpected interval widths in Bismark file: ", p)
-  d[, .(chr, pos, cov = count_meth + count_unmeth,
-        beta = fifelse(count_meth + count_unmeth > 0, count_meth / (count_meth + count_unmeth), NA_real_))]
-}
+calls_sheet <- if (is.null(opt$calls_sheet)) NULL else readCallsSheet(opt$calls_sheet)
 
 read_calls <- function(platform, smp) {
-  d <- NULL; src <- NA_character_
-  if (platform == "ONT") {
-    p <- call_path("ONT", smp, opt$ont_suffix)
-    if (file.exists(p)) {
-      d <- readBedMethyl(p)[modbase == "m"]
-      d <- d[, .(chr, pos = as.integer(start) + 1L, cov = Nvalid_cov, beta = fraction_mod / 100)]
-      src <- p
-    }
-  } else if (platform == "RRBS" && file.exists(call_path("RRBS", smp, opt$rrbs_suffix))) {
-    # Lab-specific RRBS table (as in 07_generate_cpg_stats.R): 1-based, per strand.
-    p <- call_path("RRBS", smp, opt$rrbs_suffix)
-    d <- mergeCpGStrands(readRRBSTab(p))
-    d <- d[, .(chr, pos = as.integer(start), cov = count_meth + count_unmeth,
-               beta = fifelse(count_meth + count_unmeth > 0, count_meth / (count_meth + count_unmeth), NA_real_))]
-    src <- p
-  } else if (platform %in% c("RRBS", "WGEC", "TWIST")) {
-    p <- call_path(platform, smp, opt$bismark_suffix)
-    if (file.exists(p)) { d <- read_bismark(p); src <- p }
-  } else if (platform == "PacBio") {
-    p <- call_path("PacBio", smp, opt$pacbio_suffix)
-    if (file.exists(p)) {
-      d <- readPacBio(p)[, .(chr, pos = as.integer(start) + 1L, cov = coverage, beta = percentage / 100)]
-      src <- p
-    }
-  }
+  d <- readPlatformCalls(opt$calls_dir, platform, smp, suffixes,
+                         file = callsSheetFile(calls_sheet, platform, smp))
   if (is.null(d)) return(NULL)
-  # Harmonize chromosome names to UCSC style (e.g. Ensembl "1"/"MT" -> "chr1"/"chrM").
-  d[, chr := as.character(chr)]
-  d[!startsWith(chr, "chr"), chr := paste0("chr", sub("^MT$", "M", chr))]
-  d <- d[cov > 0][!duplicated(paste(chr, pos))]
-  attr_src <- src
+  src <- attr(d, "src")
   out <- in_gdmr(d)
-  attr(out, "src") <- attr_src
+  setattr(out, "src", src)
   out
 }
 
@@ -247,15 +215,11 @@ calls <- rbindlist(lapply(seq_len(nrow(ss)), function(i) {
 if (!is.null(opt$epic_path)) {
   cat("  Reading EPIC matrices...\n")
   for (f in strsplit(opt$epic_path, ",")[[1]]) {
-    e <- fread(f, header = TRUE)                       # tab- or comma-separated
-    if (!"coord" %in% names(e)) {
-      if (all(c("chr", "start") %in% names(e))) e[, coord := paste0(chr, ":", start)]
-      else stop("EPIC matrix needs a 'coord' column or 'chr' and 'start' columns: ", f)
-    }
-    e[, `:=`(chr = sub(":.*", "", coord), pos = as.integer(sub(".*:", "", coord)))]
+    e <- readEPICMatrix(f)                             # chr/start or coord; replicates averaged
+    if (opt$epic_one_based) e[, start := start - 1L]    # 1-based file -> 0-based
     for (smp in intersect(ss$Sample, sub("^EPIC_", "", grep("^EPIC_", names(e), value = TRUE)))) {
       tissue_smp <- ss$Tissue[ss$Sample == smp]
-      d <- e[, .(chr, pos, cov = NA_real_, beta = get(paste0("EPIC_", smp)))][!is.na(beta)]
+      d <- e[, .(chr, start, cov = NA_real_, beta = get(paste0("EPIC_", smp)))][!is.na(beta)]
       d <- in_gdmr(d)
       d[, `:=`(Platform = "EPIC", Sample = smp, Tissue = tissue_smp)]
       calls <- rbind(calls, d)

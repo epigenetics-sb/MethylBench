@@ -91,72 +91,7 @@ readPacBio <- function(path) {
   return(dataset)
 }
 
-# Bismark coverage2cytosine --merge_CpG output (*.merged_CpG_evidence.cov):
-# Returns 0-based starts (position of the CpG)
-readBismarkMergedCpG <- function(path) {
-  stopifnot(is.character(path), length(path) == 1)
-  if (!file.exists(path)) stop(paste("File not found:", path))
-  
-  dataset <- fread(path, header = FALSE, sep = "\t")
-  
-  full_colnames <- c(
-    "chr", "start", "end", "percentage", "count_meth", "count_unmeth"
-  )
-  if (ncol(dataset) != length(full_colnames)) {
-    stop(sprintf(
-      "readBismarkMergedCpG: expected %d tab-separated columns (chr,start,end,percentage,count_meth,count_unmeth), got %d in file: %s",
-      length(full_colnames), ncol(dataset), path
-    ))
-  }
-  colnames(dataset) <- full_colnames
-  
-  width <- dataset$end - dataset$start
-  if (all(width == 1L)) {
-    dataset[, start := start - 1L]
-  } else if (all(width == 2L)) {
-    cat(sprintf(
-      "  [readBismarkMergedCpG] %s: already 0-based (--zero_based), no shift applied\n",
-      basename(path)
-    ))
-  } else {
-    stop(sprintf(
-      "readBismarkMergedCpG: unexpected interval widths in %s (end - start = 1: %d rows, = 2: %d rows, other: %d rows) -- is this a coverage2cytosine --merge_CpG file?",
-      path, sum(width == 1L), sum(width == 2L), sum(!width %in% 1:2)
-    ))
-  }
-  
-  if (anyDuplicated(dataset, by = c("chr", "start"))) {
-    stop(sprintf(
-      "readBismarkMergedCpG: duplicated CpG positions in %s -- strands are not merged (run coverage2cytosine with --merge_CpG).",
-      path
-    ))
-  }
-  
-  dataset[, coverage := count_meth + count_unmeth]
-  return(dataset)
-}
 
-# Bismark coverage file (1-based, one row per strand).
-readBismarkCovRaw <- function(path) {
-  stopifnot(is.character(path), length(path) == 1)
-  if (!file.exists(path)) stop(paste("File not found:", path))
-
-  dataset <- fread(path, header = FALSE, sep = "\t")
-
-  expected_cols <- 6L
-  if (ncol(dataset) != expected_cols) {
-    stop(sprintf(
-      "readBismarkCovRaw: expected %d tab-separated columns (chr,start,end,percentage,count_meth,count_unmeth), got %d in file: %s",
-      expected_cols, ncol(dataset), path
-    ))
-  }
-
-  colnames(dataset) <- c(
-    "chr", "start", "end", "percentage", "count_meth", "count_unmeth"
-  )
-
-  dataset[, .(chr, start, count_meth, count_unmeth)]
-}
 
 # TRUE for rows where every platform has at least one non-NA sample.
 platformsCoveredMask <- function(dt, method_prefixes) {
@@ -210,8 +145,8 @@ mergeCpGStrands <- function(dt) {
   dt[, local_idx := seq_len(.N), by = run_id]
   dt[, is_partner := (local_idx %% 2L == 0L)]
 
-  dt[, partner_meth   := shift(count_meth,   -1L), by = run_id]
-  dt[, partner_unmeth := shift(count_unmeth, -1L), by = run_id]
+  dt[, partner_meth   := data.table::shift(count_meth,   -1L), by = run_id]
+  dt[, partner_unmeth := data.table::shift(count_unmeth, -1L), by = run_id]
 
   anchors <- dt[is_partner == FALSE]
   anchors[, count_meth   := count_meth   + ifelse(is.na(partner_meth),   0, partner_meth)]
@@ -227,29 +162,16 @@ mergeCpGStrands <- function(dt) {
   anchors[, .(chr, start, count_meth, count_unmeth)]
 }
 
-readEPIC <- function(path, sample.name) {
-  stopifnot(is.character(path), length(path) == 1)
-  stopifnot(is.character(sample.name), length(sample.name) == 1)
-  if (!file.exists(path)) stop(paste("File not found:", path))
 
-  dataset <- fread(path, header = TRUE, sep = "\t")
-
-  if (!"ID" %in% colnames(dataset)) {
-    stop("readEPIC: 'ID' column not found in file: ", path)
-  }
-  if (!sample.name %in% colnames(dataset)) {
-    stop(sprintf("readEPIC: sample '%s' not found in file: %s", sample.name, path))
-  }
-
-  return(dataset[, c("ID", sample.name), with = FALSE])
-}
-
+# Sample sheet (comma- or tab-separated) with columns Sample and Sampleset.
 readSampleSheet <- function(path) {
   stopifnot(is.character(path), length(path) == 1)
   if (!file.exists(path)) stop(paste("File not found:", path))
-
-  ss <- read.table(path, header = TRUE, sep = ",")
-  return(ss)
+  ss <- fread(path, header = TRUE)
+  if (!all(c("Sample", "Sampleset") %in% names(ss))) {
+    stop("Sample sheet needs columns Sample and Sampleset: ", path)
+  }
+  as.data.frame(ss)
 }
 
 # ---- Long-format tables -----------------------------------------------------
@@ -498,112 +420,152 @@ extractCovDf <- function(data, threshold, cov_cols) {
   return(data[mask])
 }
 
-# Merges the per-CpG calls of all platforms for one sample set into a matrix
-# with <Method>_<Sample> (beta, 0-1) and <Method>_cov_<Sample> columns.
-# Coordinates are converted to 1-based; platforms are inner-joined within a
-# sample and samples are outer-joined.
-buildMergedMatrix <- function(samplesheet,
-                               sampleset,
-                               datadir,
-                               include_epic   = FALSE,
-                               epic_path      = NULL,
-                               ont_suffix     = "_modkit_pileup.bed",
-                               bismark_suffix = ".bismark.cov.gz",
-                               pacbio_suffix  = ".GRCh38.pbmm2.combined.bed",
-                               pacbio_paths   = NULL) {
+# ---- Per-platform calls and merged matrices ---------------------------------
 
-  stopifnot(is.data.table(samplesheet))
-  stopifnot(sampleset %in% c("Blood", "Fibroblast", "GIAB"))
-  if (include_epic && is.null(epic_path)) {
-    stop("buildMergedMatrix: epic_path required when include_epic = TRUE")
+# Bismark coverage file of any of the two layouts: per-strand .cov
+# (end == start, 1-based; strands are merged with mergeCpGStrands()) or
+# coverage2cytosine --merge_CpG output (end - start == 1: 1-based;
+# end - start == 2: 0-based, --zero_based). Returns chr, start (0-based
+# position of the C on the + strand), count_meth, count_unmeth.
+readBismarkAuto <- function(path) {
+  stopifnot(is.character(path), length(path) == 1)
+  if (!file.exists(path)) stop(paste("File not found:", path))
+  d <- fread(path, header = FALSE, sep = "\t")
+  if (ncol(d) != 6L) stop("readBismarkAuto: expected 6 columns, got ", ncol(d), " in ", path)
+  setnames(d, c("chr", "start", "end", "percentage", "count_meth", "count_unmeth"))
+  w <- unique(d$end - d$start)
+  if (all(w == 0L)) {
+    d <- mergeCpGStrands(d[, .(chr, start, count_meth, count_unmeth)])
+    d[, start := as.integer(start) - 1L]
+  } else if (all(w == 1L)) {
+    d[, start := as.integer(start) - 1L]
+  } else if (all(w == 2L)) {
+    d[, start := as.integer(start)]
+  } else {
+    stop("readBismarkAuto: unexpected interval widths in ", path,
+         " -- expected a per-strand .cov or a coverage2cytosine --merge_CpG file")
   }
+  d[, .(chr, start, count_meth, count_unmeth)]
+}
 
-  samples <- samplesheet[Sampleset == sampleset, Sample]
-  is_giab <- sampleset == "GIAB"
-  methods <- if (is_giab) c("ONT","RRBS","WGEC","TWIST","PacBio") else
-                           c("ONT","RRBS","WGEC","TWIST")
+# Default file suffixes of the per-platform calls (<calls_dir>/<METHOD>/<Sample><suffix>).
+CALL_SUFFIXES <- list(ONT = "_modkit_pileup.bed", BISMARK = ".bismark.cov.gz",
+                      RRBS = ".methylation.tab", PacBio = ".combined.bed")
 
-  cat(sprintf("\n[buildMergedMatrix] %s | Samples: %s\n",
-    sampleset, paste(samples, collapse=", ")))
-
-  all_sample_dts <- lapply(samples, function(smp) {
-
-    method_dts <- lapply(methods, function(m) {
-
-      if (m == "ONT") {
-        path <- file.path(datadir, "ONT", paste0(smp, ont_suffix))
-        if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
-        dt <- readBedMethyl(path)
-        dt <- dt[modbase == "m"]
-        dt[, start := start + 1L]  # 0-based BED -> 1-based
-        dt <- dt[, .(coord = paste0(chr,":",start),
-                     cov   = Nvalid_cov,
-                     meth  = fraction_mod / 100)]
-
-      } else if (m %in% c("RRBS","WGEC","TWIST")) {
-        path <- file.path(datadir, m, paste0(smp, bismark_suffix))
-        if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
-        dt_raw <- readBismarkCovRaw(path)
-        dt_cpg <- mergeCpGStrands(dt_raw)
-        cov_total <- dt_cpg$count_meth + dt_cpg$count_unmeth
-        dt <- dt_cpg[, .(
-          coord = paste0(chr, ":", start),
-          cov   = cov_total,
-          meth  = fifelse(cov_total > 0, count_meth / cov_total, NA_real_)
-        )]
-
-      } else if (m == "PacBio") {
-        path <- if (!is.null(pacbio_paths) && smp %in% names(pacbio_paths)) {
-          pacbio_paths[[smp]]
-        } else {
-          file.path(datadir, "PacBio", paste0(smp, pacbio_suffix))
-        }
-        if (!file.exists(path)) { warning(sprintf("Missing: %s", path)); return(NULL) }
-        dt <- readPacBio(path)
-        dt[, start := start + 1L]  # 0-based BED -> 1-based
-        dt <- dt[, .(coord = paste0(chr,":",start),
-                     cov   = coverage,
-                     meth  = percentage / 100)]
-      }
-
-      dt <- dt[!duplicated(coord)]
-      prefix <- m
-      setnames(dt,
-        c("cov", "meth"),
-        c(paste0(prefix, "_cov_", smp), paste0(prefix, "_", smp))
-      )
-      return(dt)
-    })
-
-    method_dts <- Filter(Negate(is.null), method_dts)
-    if (length(method_dts) == 0) return(NULL)
-    Reduce(function(a,b) merge(a, b, by="coord", all=FALSE), method_dts)
-  })
-
-  all_sample_dts <- Filter(Negate(is.null), all_sample_dts)
-
-  cat("  Merging across samples...\n")
-  merged <- Reduce(function(a,b) merge(a, b, by="coord", all=TRUE), all_sample_dts)
-
-  if (include_epic) {
-    cat("  Joining EPIC data...\n")
-    epic <- fread(epic_path, header=TRUE, sep="\t")
-    if (!"coord" %in% colnames(epic)) {
-      warning("EPIC matrix has no coord column – add chr:start column before joining.")
-    } else {
-      merged <- merge(merged, epic, by="coord", all.x=TRUE)
+# Per-platform methylation calls of one sample, harmonized to one row per CpG:
+# chr (UCSC style), start (0-based position of the C on the + strand, BED
+# convention, as in the merged matrices; both strands combined), cov (reads)
+# and beta (0-1). CpGs with zero coverage are dropped. Returns NULL
+# if no file is found; attr(, "src") gives the file read.
+#   ONT     modkit pileup bedMethyl (--cpg --combine-strands), 0-based, 5mC (code m) only
+#   WGEC, TWIST
+#           Bismark coverage, per-strand or coverage2cytosine --merge_CpG (readBismarkAuto)
+#   RRBS    lab-specific table (chr pos coverage n_unmeth fraction; 1-based, per
+#           strand; strands merged) if present, otherwise the Bismark file
+#   PacBio  pb-CpG-tools combined BED, 0-based (strands combined by the tool);
+#           rows of type "Total"; beta = mod_score / 100 (pacbio_value =
+#           "mod_score", as for the matrices of the manuscript) or
+#           discretized_mod_score / 100 ("discretized")
+# With `file`, that file is read instead of <calls_dir>/<platform>/<sample><suffix>;
+# an RRBS file ending in suffixes$RRBS is read as the lab-specific table.
+readPlatformCalls <- function(calls_dir, platform, sample, suffixes = CALL_SUFFIXES,
+                              file = NULL, pacbio_value = c("mod_score", "discretized")) {
+  pacbio_value <- match.arg(pacbio_value)
+  call_path <- function(sfx) {
+    if (!is.null(file)) return(file)
+    file.path(calls_dir, platform, paste0(sample, sfx))
+  }
+  is_rrbs_table <- function(p) endsWith(p, suffixes$RRBS)
+  d <- NULL; src <- NA_character_
+  counts_to_beta <- function(x) x[, .(chr, start, cov = count_meth + count_unmeth,
+                                     beta = fifelse(count_meth + count_unmeth > 0,
+                                                    count_meth / (count_meth + count_unmeth), NA_real_))]
+  if (platform == "ONT") {
+    p <- call_path(suffixes$ONT)
+    if (file.exists(p)) {
+      d <- readBedMethyl(p)[modbase == "m"]
+      d <- d[, .(chr, start = as.integer(start), cov = Nvalid_cov, beta = fraction_mod / 100)]
+      src <- p
     }
+  } else if (platform == "RRBS" && file.exists(call_path(suffixes$RRBS)) &&
+             is_rrbs_table(call_path(suffixes$RRBS))) {
+    p <- call_path(suffixes$RRBS)
+    d <- mergeCpGStrands(readRRBSTab(p))
+    d[, start := as.integer(start) - 1L]   # 1-based table -> 0-based
+    d <- counts_to_beta(d); src <- p
+  } else if (platform %in% c("RRBS", "WGEC", "TWIST")) {
+    p <- call_path(suffixes$BISMARK)
+    if (file.exists(p)) { d <- counts_to_beta(readBismarkAuto(p)); src <- p }
+  } else if (platform == "PacBio") {
+    p <- call_path(suffixes$PacBio)
+    if (file.exists(p)) {
+      d <- readPacBio(p)
+      if (any(d$haplotype == "Total")) d <- d[haplotype == "Total"]
+      d <- d[, .(chr, start = as.integer(start), cov = coverage,
+                 beta = if (pacbio_value == "mod_score") score / 100 else percentage / 100)]
+      src <- p
+    }
+  } else {
+    stop("readPlatformCalls: unknown platform ", platform)
   }
+  if (is.null(d)) return(NULL)
+  d[, chr := as.character(chr)]
+  d[!startsWith(chr, "chr"), chr := paste0("chr", sub("^MT$", "M", chr))]
+  d <- d[cov > 0]
+  d <- d[!duplicated(d, by = c("chr", "start"))]
+  setattr(d, "src", src)
+  d
+}
 
-  out_dir  <- file.path(datadir, "matrices")
-  dir.create(out_dir, recursive=TRUE, showWarnings=FALSE)
-  suffix   <- ifelse(include_epic, "_with_EPIC.csv", "_without_EPIC.csv")
-  out_file <- file.path(out_dir, paste0(sampleset, suffix))
-  fwrite(merged, out_file, sep=",", quote=FALSE, na="NA")
-  cat(sprintf("  Saved: %s (%d CpGs x %d columns)\n",
-    out_file, nrow(merged), ncol(merged)))
+# EPIC beta matrix (tab- or comma-separated) with a 'coord' column (chr:pos) or
+# 'chr' and 'start' columns and one column per sample named EPIC_<Sample>.
+# Positions are used as given. Returns chr, start and the EPIC_<Sample> columns;
+# probes at the same position are averaged.
+readEPICMatrix <- function(path) {
+  stopifnot(is.character(path), length(path) == 1)
+  if (!file.exists(path)) stop(paste("File not found:", path))
+  e <- fread(path)
+  if ("coord" %in% names(e)) {
+    e[, c("chr", "start") := tstrsplit(coord, ":", fixed = TRUE)]
+    e[, start := as.integer(start)]
+  } else if (!all(c("chr", "start") %in% names(e))) {
+    stop("readEPICMatrix: needs a 'coord' column or 'chr' and 'start' columns: ", path)
+  }
+  cols <- grep("^EPIC_", names(e), value = TRUE)
+  if (length(cols) == 0) stop("readEPICMatrix: no EPIC_<Sample> columns in ", path)
+  e <- e[, c("chr", "start", cols), with = FALSE]
+  e[, chr := as.character(chr)]
+  e[!startsWith(chr, "chr"), chr := paste0("chr", chr)]
+  e[, start := as.integer(start)]
+  # Probes mapping to the same position (e.g. EPIC v2 replicates) are averaged.
+  mean_or_na <- function(x) if (all(is.na(x))) NA_real_ else mean(x, na.rm = TRUE)
+  e[, lapply(.SD, mean_or_na), by = .(chr, start), .SDcols = cols]
+}
 
-  return(invisible(merged))
+# Table of input files (comma- or tab-separated; columns Sample, Method, File),
+# an alternative to the <calls_dir>/<METHOD>/<Sample><suffix> layout.
+readCallsSheet <- function(path) {
+  cs <- fread(path)
+  if (!all(c("Sample", "Method", "File") %in% names(cs))) stop("Calls sheet needs columns Sample, Method, File: ", path)
+  if (anyDuplicated(cs, by = c("Sample", "Method"))) stop("Calls sheet: duplicated Sample/Method in ", path)
+  miss <- cs[!file.exists(File), File]
+  if (length(miss) > 0) stop("Files not found:\n", paste(miss, collapse = "\n"))
+  cs
+}
+# File for one sample and platform: NULL without a calls sheet (directory
+# layout is used), "" if the sheet has no entry (treated as missing).
+callsSheetFile <- function(cs, method, sample) {
+  if (is.null(cs)) return(NULL)
+  f <- cs[Sample == sample & Method == method, File]
+  if (length(f) == 0) "" else f
+}
+
+# Joins a list of data.tables on chr/start; how = "inner" or "outer".
+joinOnCpG <- function(dts, how = c("inner", "outer")) {
+  how <- match.arg(how)
+  dts <- Filter(Negate(is.null), dts)
+  if (length(dts) == 0) return(NULL)
+  Reduce(function(a, b) merge(a, b, by = c("chr", "start"), all = (how == "outer")), dts)
 }
 
 # Pairwise correlations per sample across coverage thresholds; at each threshold

@@ -5,7 +5,7 @@
 # Usage (from the repository root):
 #
 #   conda activate methylbench
-#   export DATA=/path/to/matrices      # ALL.csv, ALL_without_EPIC.csv, ...
+#   export DATA=/path/to/matrices      # ALL.csv, ALL_without_EPIC.csv, ... (07b_build_matrices.R)
 #   export STATS=/path/to/stats        # cpg_stats_methylbench.tab, qc_stats_methylbench.tab
 #   export OUT=/path/to/results
 #   bash scripts/bash/run_methylbench.sh
@@ -16,12 +16,14 @@
 #   SKIP     space-separated step names to skip, e.g. SKIP="downsampling unpaired"
 #
 # Script 17 (imprinted gDMRs) needs per-platform methylation calls instead of
-# the merged matrices and runs only if CALLS_DIR and SAMPLESHEET are set:
+# the merged matrices and runs only if SAMPLESHEET and CALLS_SHEET or CALLS_DIR are set:
+#   CALLS_SHEET  table with columns Sample, Method, File (as for 07b_build_matrices.R), or
 #   CALLS_DIR    directory with per-platform calls, <CALLS_DIR>/<METHOD>/<Sample><suffix>
 #   SAMPLESHEET  sample sheet (comma-separated; columns Sample, Sampleset)
 #   GDMR_BED     BED file of imprinted gDMRs (hg38, 0-based; chr, start, end, name)
 #                [default: data/imprinted_gDMRs_hg38.bed, shipped with the repository]
-#   EPIC_TSV     optional: comma-separated EPIC beta matrices (column 'coord' = chr:pos)
+#   EPIC_TSV     optional: comma-separated EPIC beta matrices (chr/start or coord, 0-based),
+#                e.g. the files used for 07b_build_matrices.R
 #
 # Every step writes a log to $OUT/logs/<step>.log. The script stops at the
 # first failing step (set -e) and reports which one failed.
@@ -183,10 +185,11 @@ run_step coverage_context \
 # gDMR list shipped with the repository. Uses the DML results from step 'dss'
 # for the DMCs located in gDMRs (Suppl. Table S6E).
 GDMR_BED="${GDMR_BED:-data/imprinted_gDMRs_hg38.bed}"
-if [[ -n "${CALLS_DIR:-}" && -n "${SAMPLESHEET:-}" && -f "$GDMR_BED" ]]; then
+if [[ ( -n "${CALLS_SHEET:-}" || -n "${CALLS_DIR:-}" ) && -n "${SAMPLESHEET:-}" && -f "$GDMR_BED" ]]; then
+  if [[ -n "${CALLS_SHEET:-}" ]]; then calls_args=(--calls_sheet "$CALLS_SHEET"); else calls_args=(--calls_dir "$CALLS_DIR"); fi
   imprint_args=(
     --samplesheet "$SAMPLESHEET"
-    --calls_dir   "$CALLS_DIR"
+    "${calls_args[@]}"
     --gdmr_bed    "$GDMR_BED"
     --dss_dir     "$OUT/dmr_dss/"
     --outdir      "$OUT/figures/"
@@ -195,7 +198,7 @@ if [[ -n "${CALLS_DIR:-}" && -n "${SAMPLESHEET:-}" && -f "$GDMR_BED" ]]; then
   if [[ -n "${EPIC_TSV:-}" ]]; then imprint_args+=(--epic_path "$EPIC_TSV"); fi
   run_step imprinting Rscript scripts/R/17_imprinted_regions.R "${imprint_args[@]}"
 else
-  echo "[skip] imprinting (set CALLS_DIR and SAMPLESHEET, and GDMR_BED if not using data/imprinted_gDMRs_hg38.bed, to run script 17)"
+  echo "[skip] imprinting (set SAMPLESHEET and CALLS_SHEET or CALLS_DIR, and GDMR_BED if not using data/imprinted_gDMRs_hg38.bed, to run script 17)"
 fi
 
 echo "[$(date '+%H:%M:%S')] MethylBench analysis finished. Results: $OUT"

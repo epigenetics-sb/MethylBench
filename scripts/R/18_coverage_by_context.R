@@ -116,8 +116,9 @@ cat("[1/5] Building annotatr databases...\n")
 gene_db <- build_annotations(genome = GENOME, annotations = GENE_PRIORITY)
 cpg_db  <- build_annotations(genome = GENOME, annotations = CPG_PRIORITY)
 
+# Matrix positions are 0-based (BED convention); annotatr/GRanges are 1-based.
 annotate_cpgs <- function(dt, ref) {
-  gr <- GRanges(dt$chr, IRanges(dt$start, width = 1))
+  gr <- GRanges(dt$chr, IRanges(dt$start + 1L, width = 1))
   dt[, cpg_structural := label_by_priority(gr, cpg_db,  CPG_PRIORITY,  "inter")]
   dt[, gene_centric   := label_by_priority(gr, gene_db, GENE_PRIORITY, "intergenic")]
   dens <- local_density(dt$chr, dt$start, ref$chr, ref$start, opt$window)

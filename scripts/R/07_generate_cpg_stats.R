@@ -7,13 +7,17 @@
 # Output columns: Sample, Sampleset, Cov_0, Cov_5, ..., Cov_40.
 #
 # Usage:
-#   Rscript scripts/R/07_generate_cpg_stats.R --samplesheet samples.tsv \
-#     --datadir data/ --outdir <stats>/ [--coverages 0,5,10,...]
+#   Rscript scripts/R/07_generate_cpg_stats.R --samplesheet samplesheet.csv \
+#     (--calls_sheet calls.csv | --datadir data/) --outdir <stats>/ [--coverages 0,5,10,...]
 #
-# Expected files under --datadir:
+# Input files: --calls_sheet (columns Sample, Method, File; as for
+# 07b_build_matrices.R) or, under --datadir, <METHOD>/<sample><suffix>:
 #   ONT/<sample>_modkit_pileup.bed
-#   RRBS/, WGEC/, TWIST/<sample>.bismark.cov.gz
+#   RRBS/<sample>.tab (lab-specific table) or <sample>.bismark.cov.gz
+#   WGEC/, TWIST/<sample>.bismark.cov.gz
 #   PacBio/<sample>.GRCh38.pbmm2.combined.bed   (GIAB only)
+# All files are read with readPlatformCalls() (utils/helpers.R), as in 07b and
+# 17; positions are 0-based.
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -22,16 +26,18 @@ suppressPackageStartupMessages({
   library(dplyr)
 })
 
-script_dir <- tryCatch(
-  dirname(sys.frame(1)$ofile),
-  error = function(e) "scripts/R/utils"
-)
-source(file.path(script_dir, "helpers.R"))
+source("scripts/R/utils/helpers.R")
 
 option_list <- list(
   make_option("--samplesheet",
     type    = "character",
-    help    = "Path to samplesheet TSV (columns: Sample, Sampleset) [required]",
+    help    = "Sample sheet, comma- or tab-separated (columns: Sample, Sampleset) [required]",
+    metavar = "FILE"
+  ),
+  make_option("--calls_sheet",
+    type    = "character",
+    default = NULL,
+    help    = "Table with columns Sample, Method, File (alternative to --datadir), as for 07b_build_matrices.R",
     metavar = "FILE"
   ),
   make_option("--datadir",
@@ -83,73 +89,20 @@ dir.create(opt$outdir, recursive = TRUE, showWarnings = FALSE)
 
 COV_THRESHOLDS <- as.integer(strsplit(opt$coverages, ",")[[1]])
 
-get_path <- function(datadir, method, sample_id, suffix) {
-  file.path(datadir, method, paste0(sample_id, suffix))
-}
+# Per-platform calls with the shared reader (utils/helpers.R): one row per CpG,
+# 0-based position of the C on the + strand, both strands combined, cov > 0.
+suffixes <- list(ONT = opt$ont_suffix, BISMARK = opt$bismark_suffix,
+                 RRBS = opt$rrbs_suffix, PacBio = opt$pacbio_suffix)
+calls_sheet <- if (is.null(opt$calls_sheet)) NULL else readCallsSheet(opt$calls_sheet)
 
 load_method <- function(method, sample_id, datadir, opt) {
-
-  if (method == "ONT") {
-    path <- get_path(datadir, "ONT", sample_id, opt$ont_suffix)
-    if (!file.exists(path)) {
-      warning(sprintf("ONT file not found for %s: %s", sample_id, path))
-      return(NULL)
-    }
-    dt <- readBedMethyl(path)
-    dt <- dt[modbase == "m"]
-    dt <- dt[, .(
-      coord      = paste0(chr, ":", start),
-      coverage   = Nvalid_cov,
-      methylation = fraction_mod
-    )]
-
-  } else if (method == "RRBS") {
-    path <- get_path(datadir, "RRBS", sample_id, opt$rrbs_suffix)
-    if (!file.exists(path)) {
-      warning(sprintf("RRBS file not found for %s: %s", sample_id, path))
-      return(NULL)
-    }
-    dt <- mergeCpGStrands(readRRBSTab(path))
-    dt[, start := start - 1L]  # 1-based -> 0-based
-    dt[, coverage := count_meth + count_unmeth]
-    dt <- dt[coverage > 0, .(
-      coord       = paste0(chr, ":", start),
-      coverage    = coverage,
-      methylation = count_meth / coverage
-    )]
-    
-  } else if (method %in% c("WGEC", "TWIST")) {
-    path <- get_path(datadir, method, sample_id, opt$bismark_suffix)
-    if (!file.exists(path)) {
-      warning(sprintf("%s file not found for %s: %s", method, sample_id, path))
-      return(NULL)
-    }
-    dt <- readBismarkMergedCpG(path)
-    dt <- dt[, .(
-      coord       = paste0(chr, ":", start),
-      coverage    = coverage,
-      methylation = percentage / 100
-    )]
-    
-  } else if (method == "PacBio") {
-    path <- get_path(datadir, "PacBio", sample_id, opt$pacbio_suffix)
-    if (!file.exists(path)) {
-      warning(sprintf("PacBio file not found for %s: %s", sample_id, path))
-      return(NULL)
-    }
-    dt <- readPacBio(path)
-    dt <- dt[, .(
-      coord       = paste0(chr, ":", start),
-      coverage    = coverage,
-      methylation = percentage / 100
-    )]
-
-  } else {
-    stop(paste("Unknown method:", method))
+  d <- readPlatformCalls(datadir, method, sample_id, suffixes,
+                         file = callsSheetFile(calls_sheet, method, sample_id))
+  if (is.null(d)) {
+    warning(sprintf("%s file not found for %s", method, sample_id))
+    return(NULL)
   }
-
-  dt <- dt[!duplicated(coord)]
-  return(dt)
+  d[, .(coord = paste0(chr, ":", start), coverage = cov, methylation = beta)]
 }
 
 # Number of CpGs at which all platforms reach each coverage threshold.
@@ -171,7 +124,7 @@ count_cpgs_at_thresholds <- function(merged_dt, methods_present, thresholds) {
   return(counts)
 }
 
-ss <- fread(opt$samplesheet, header = TRUE, sep = "\t")
+ss <- as.data.table(readSampleSheet(opt$samplesheet))
 
 required_cols <- c("Sample", "Sampleset")
 missing_cols  <- setdiff(required_cols, colnames(ss))

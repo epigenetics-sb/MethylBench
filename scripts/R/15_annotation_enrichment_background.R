@@ -138,12 +138,17 @@ annotate_exclusive <- function(gr, annot_db, priority) {
   df
 }
 
+# Positions in the matrices and in the DSS/DMRcate output are 0-based (BED
+# convention, position of the C); GRanges/annotatr are 1-based, hence +1.
+POS_OFFSET <- 1L
+
 read_consensus_as_gr <- function(tier) {
   path <- file.path(opt$dss_dir, paste0(tier, "_consensus_CpGs.tsv"))
   if (!file.exists(path)) stop("Background file not found: ", path)
   bg <- fread(path)
   parts <- str_match(bg$cpg_id, "^(chr[^:]+):([0-9]+)$")
-  gr <- GRanges(seqnames = parts[, 2], ranges = IRanges(as.integer(parts[, 3]), as.integer(parts[, 3])))
+  pos <- as.integer(parts[, 3]) + POS_OFFSET
+  gr <- GRanges(seqnames = parts[, 2], ranges = IRanges(pos, pos))
   gr[as.character(seqnames(gr)) %in% VALID_CHRS]
 }
 
@@ -162,10 +167,10 @@ read_sig_as_gr <- function(path, level) {
   df <- fread(path)
   if (nrow(df) == 0) return(GRanges())
   if (level == "CpG") {
-    gr <- GRanges(seqnames = df$chr, ranges = IRanges(df$pos, df$pos))
+    gr <- GRanges(seqnames = df$chr, ranges = IRanges(df$pos + POS_OFFSET, df$pos + POS_OFFSET))
   } else {
     seq_col <- intersect(c("seqnames", "chr"), colnames(df))[1]
-    gr <- GRanges(seqnames = df[[seq_col]], ranges = IRanges(df$start, df$end))
+    gr <- GRanges(seqnames = df[[seq_col]], ranges = IRanges(df$start + POS_OFFSET, df$end + POS_OFFSET))
   }
   gr[as.character(seqnames(gr)) %in% VALID_CHRS]
 }

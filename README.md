@@ -42,6 +42,7 @@ MethylBench/
 │   └── R/
 │       ├── 06_visualize_toulligqc_summary.R     # ONT QC report visualization
 │       ├── 07_generate_cpg_stats.R              # cpg_stats_methylbench.tab (input for 08)
+│       ├── 07b_build_matrices.R                 # the five merged methylation matrices (input for 08–16, 18)
 │       ├── 08_qc_visualization.R                # Figure 3, Suppl. Figure 1, Suppl. Table S4
 │       ├── 09_correlation_analysis.R            # Figure 4, Suppl. Figures 2 and 3, Suppl. Table S5
 │       ├── 10_density_plots.R                   # Figure 5, Suppl. Figure 5
@@ -119,7 +120,17 @@ Rscript scripts/R/06_visualize_toulligqc_summary.R <arguments, see script header
 Rscript scripts/R/07_generate_cpg_stats.R --help
 ```
 
-The per-CpG calls of all platforms are then merged into the matrices described below.
+The per-CpG calls of all platforms are then merged into the five matrices described in [Input data](#methylation-matrices-data):
+
+```bash
+Rscript scripts/R/07b_build_matrices.R \
+  --samplesheet samplesheet.csv \
+  --calls_sheet calls.csv \
+  --epic_path   EPIC_blood_fibro.csv,EPIC_GIAB.csv \
+  --outdir      "$DATA"
+```
+
+The per-platform calls are given either as a table (`--calls_sheet`; columns `Sample`, `Method`, `File`) or as a directory with the same layout and file suffixes as for script 17 (`--calls_dir`; see [Inputs for script 17](#inputs-for-script-17-imprinted-gdmrs)). Per sample and platform, the calls are reduced to one row per CpG: position of the C on the + strand, both strands combined, CpGs with zero coverage removed, chr1–22, chrX and chrY only; ONT 5mC calls (modification code `m`), PacBio rows of type `Total` with β = `mod_score`/100. The platforms of each sample, the samples of each sample set and the three sample sets are then joined on the CpG position, and the EPIC matrices (normalized β-values, columns `chr`, `start` or `coord`, and `EPIC_<Sample>`; probes at the same position are averaged) are joined with each other and with `ALL_without_EPIC.csv`. With the default settings, all joins are inner joins (`--platform_join`, `--sample_join`, `--set_join`, `--epic_join`): the four `*_without_EPIC.csv` files contain the CpGs with a call from every sequencing-based platform in every sample of the file, and `ALL.csv` contains the CpGs of `ALL_without_EPIC.csv` that are also EPIC probe positions in all EPIC matrices (the common five-platform CpG set). Positions are written 0-based (BED convention) unless `--one_based` is given; EPIC positions are joined as given. These defaults reproduce the matrices used for the manuscript. The number of CpGs per platform, sample and file is written to `matrix_build_summary.tsv`.
 
 ---
 
@@ -134,16 +145,16 @@ The analysis (scripts 08–16 and 18) needs **five methylation matrices** in one
 | `Blood_without_EPIC.csv` | Blood1–Blood5 | ONT, WGEC, TWIST, RRBS | 09, 10, 11, 12 |
 | `Fibro_without_EPIC.csv` | Fibro1–Fibro5 | ONT, WGEC, TWIST, RRBS | 09, 10, 11, 12 |
 | `GIAB_without_EPIC.csv` | GIAB1, GIAB2 | ONT, WGEC, TWIST, RRBS, PacBio | 09, 10, 11 |
-| `ALL_without_EPIC.csv` | all 12 samples | all sequencing platforms (union of the three files above) | 08 (`--all_path`), 13 (`--seq_path`, Tier 1), 18 (`--all_path`) |
-| `ALL.csv` | all 12 samples | `ALL_without_EPIC.csv` **plus** the EPIC columns | 10 (`--epic_path`), 11, 12, 13 (`--all_path`, Tier 2), 16 (`--all_path`, optional) |
+| `ALL_without_EPIC.csv` | all 12 samples | all sequencing platforms (CpGs of the three files above that are shared by all samples) | 08 (`--all_path`), 13 (`--seq_path`, Tier 1), 18 (`--all_path`) |
+| `ALL.csv` | all 12 samples | CpGs of `ALL_without_EPIC.csv` at EPIC probe positions, **plus** the EPIC columns | 10 (`--epic_path`), 11, 12, 13 (`--all_path`, Tier 2), 16 (`--all_path`, optional) |
 
 **Format** (all five files):
 
 - Comma-separated, with header; missing values written as `NA`.
-- One row per CpG. CpGs not measured by a platform or sample are `NA`. Each script selects its CpG set itself (e.g. the common five-platform set in 12, or the Tier 1/Tier 2 consensus sets in 13), so the matrices may contain the union of all CpGs.
+- One row per CpG. With the default settings of `07b_build_matrices.R`, the matrices contain only CpGs with a call from every sequencing-based platform in every sample of the file (and, for `ALL.csv`, an EPIC probe); EPIC β-values that failed array QC are `NA`. Each script selects its CpG set itself (e.g. the common five-platform set in 12, or the Tier 1/Tier 2 consensus sets in 13), so the scripts also accept matrices built with outer joins.
 - **Coordinate columns** `chr` and `start`:
   - `chr` with prefix (`chr1` … `chr22`, `chrX`, `chrY`).
-  - `start` = 1-based position of the CpG cytosine on the forward strand, GRCh38/hg38, with both strands of a CpG merged into one row (as in `helpers.R::mergeCpGStrands()`).
+  - `start` = 0-based position (BED convention) of the CpG cytosine on the forward strand, GRCh38/hg38, with both strands of a CpG merged into one row. All positions handled by the scripts (matrices, EPIC matrices, DSS and DMRcate output) use this convention; scripts 15, 17 and 18 convert them to 1-based coordinates for the genomic annotations.
 - **Methylation columns** `<Method>_<Sample>`: β-value as a fraction in **[0, 1]** (not percent).
 - **Coverage columns** `<Method>_cov_<Sample>`: number of reads (integer) – sequencing platforms only.
 - **EPIC columns** `EPIC_<Sample>`: normalized β-value in [0, 1], no coverage column. Required in `ALL.csv` for Blood1–5 and Fibro1–5; `EPIC_GIAB1`/`EPIC_GIAB2` are used by script 10.
@@ -171,8 +182,8 @@ Per-sample counts of overlapping CpGs at increasing coverage thresholds, compute
 
 ```bash
 Rscript scripts/R/07_generate_cpg_stats.R \
-  --samplesheet [samplesheet.tsv] \
-  --datadir     data/ \
+  --samplesheet samplesheet.csv \
+  --calls_sheet calls.csv \
   --outdir      "$STATS/"
 ```
 
@@ -196,25 +207,26 @@ Per-sample × per-method QC metrics, assembled from the QC reports of each tool:
 
 ### Inputs for script 17 (imprinted gDMRs)
 
-Script 17 evaluates each platform on its own CpGs and therefore reads the per-platform methylation calls rather than the merged matrices. It is optional in `run_methylbench.sh` and runs only if `CALLS_DIR` and `SAMPLESHEET` are set; `GDMR_BED` defaults to `data/imprinted_gDMRs_hg38.bed`.
+Script 17 evaluates each platform on its own CpGs and therefore reads the per-platform methylation calls rather than the merged matrices. It is optional in `run_methylbench.sh` and runs only if `SAMPLESHEET` and `CALLS_SHEET` (or `CALLS_DIR`) are set; `GDMR_BED` defaults to `data/imprinted_gDMRs_hg38.bed`.
 
 | Input | Variable / option | Format |
 |---|---|---|
-| Per-platform calls | `CALLS_DIR` / `--calls_dir` | `<CALLS_DIR>/<METHOD>/<Sample><suffix>`, one file per platform and sample (see below) |
-| Sample sheet | `SAMPLESHEET` / `--samplesheet` | comma-separated, columns `Sample` (e.g. `Blood1`, `GIAB1`) and `Sampleset` (`Blood`, `Fibroblast`, `GIAB`) |
+| Per-platform calls | `CALLS_SHEET` / `--calls_sheet` | table with columns `Sample`, `Method`, `File`, one row per platform and sample (the same file as for `07b_build_matrices.R` and `07_generate_cpg_stats.R`) |
+| … or | `CALLS_DIR` / `--calls_dir` | `<CALLS_DIR>/<METHOD>/<Sample><suffix>`, one file per platform and sample (see below) |
+| Sample sheet | `SAMPLESHEET` / `--samplesheet` | comma- or tab-separated, columns `Sample` (e.g. `Blood1`, `GIAB1`) and `Sampleset` (`Blood`, `Fibroblast`, `GIAB`) |
 | Imprinted gDMRs | `GDMR_BED` / `--gdmr_bed` | BED, hg38, 0-based; columns `chr`, `start`, `end`, `name`; default in `run_methylbench.sh`: `data/imprinted_gDMRs_hg38.bed` (see below) |
-| EPIC (optional) | `EPIC_TSV` / `--epic_path` | comma-separated list of tab-separated EPIC β-matrices with a `coord` column (`chr:pos`) and one column `EPIC_<Sample>` per sample |
+| EPIC (optional) | `EPIC_TSV` / `--epic_path` | comma-separated list of EPIC β-matrices (tab or comma) with a `coord` column (`chr:pos`) or `chr` and `start` columns, 0-based positions as in the merged matrices (`--epic_one_based` for 1-based files), and one column `EPIC_<Sample>` per sample; the same files as for `07b_build_matrices.R` can be used |
 
-Per-platform call files and default suffixes (changeable via `--ont_suffix`, `--bismark_suffix`, `--rrbs_suffix`, `--pacbio_suffix`):
+Per-platform call formats and the default suffixes for `--calls_dir` (changeable via `--ont_suffix`, `--bismark_suffix`, `--rrbs_suffix`, `--pacbio_suffix`); with `--calls_sheet`, RRBS files ending in the RRBS suffix are read as the lab-specific table:
 
 | Platform | File | Format |
 |---|---|---|
 | ONT | `ONT/<Sample>_modkit_pileup.bed` | modkit pileup bedMethyl (`--cpg --combine-strands`), 0-based |
 | WGEC, TWIST, RRBS (GIAB) | `<METHOD>/<Sample>.bismark.cov.gz` | Bismark coverage; per-strand or `coverage2cytosine --merge_CpG` output is detected automatically |
 | RRBS (blood/fibroblast) | `RRBS/<Sample>.methylation.tab` | space-separated `chr pos coverage n_unmeth fraction`, 1-based, per strand; used if present, otherwise the Bismark file |
-| PacBio | `PacBio/<Sample>.combined.bed` | pb-CpG-tools combined BED, 0-based |
+| PacBio | `PacBio/<Sample>.combined.bed` | pb-CpG-tools combined BED, 0-based; rows of type `Total`, β = `mod_score`/100 |
 
-All positions are converted to 1-based CpG positions (C of the + strand). With `--dss_dir`, script 17 also counts the DMCs of the primary analysis that fall into gDMRs (internal control, Suppl. Table S6E); it therefore runs after step `dss`.
+All files are read with the same function as in `07b_build_matrices.R` and `07_generate_cpg_stats.R` (`helpers.R::readPlatformCalls()`), and all positions are converted to 0-based CpG positions (C of the + strand), as in the merged matrices. With `--dss_dir`, script 17 also counts the DMCs of the primary analysis that fall into gDMRs (internal control, Suppl. Table S6E); it therefore runs after step `dss`.
 
 #### gDMR list (`data/imprinted_gDMRs_hg38.bed`)
 
@@ -251,7 +263,7 @@ Optional variables:
 | `N_REPS` | `5` | downsampling replicates (script 14), as in the paper |
 | `CORES` | `4` | parallel workers (script 14) |
 | `SKIP` | – | steps to skip, e.g. `SKIP="unpaired downsampling"` |
-| `CALLS_DIR`, `SAMPLESHEET` | – | inputs for script 17; the step `imprinting` is skipped if one of them is missing |
+| `CALLS_SHEET` (or `CALLS_DIR`), `SAMPLESHEET` | – | inputs for script 17; the step `imprinting` is skipped if they are missing |
 | `GDMR_BED` | `data/imprinted_gDMRs_hg38.bed` | gDMR list for script 17 |
 | `EPIC_TSV` | – | optional EPIC matrices for script 17 |
 
@@ -363,7 +375,7 @@ Rscript scripts/R/18_coverage_by_context.R \
 # omit --epic_path if no EPIC matrices are available)
 Rscript scripts/R/17_imprinted_regions.R \
   --samplesheet "$SAMPLESHEET" \
-  --calls_dir   "$CALLS_DIR" \
+  --calls_sheet "$CALLS_SHEET" \
   --gdmr_bed    data/imprinted_gDMRs_hg38.bed \
   --epic_path   "$EPIC_TSV" \
   --dss_dir     "$OUT/dmr_dss/" \
