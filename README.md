@@ -38,7 +38,8 @@ MethylBench/
 │   │   ├── 04_methylseq.sh                      # nf-core/methylseq: short-read processing (RRBS, WGEC, TWIST)
 │   │   └── run_methylbench.sh                   # runs the complete R analysis (scripts 07–18) in one go
 │   ├── python/
-│   │   └── 05_parse_toulligqc.py                # summarize ToulligQC .data files into one QC table
+│   │   ├── 05_parse_toulligqc.py                # summarize ToulligQC .data files into one QC table
+│   │   └── compare_dss_runs.py                  # primary DSS/DMRcate run versus sensitivity runs (Suppl. Table S7)
 │   └── R/
 │       ├── 06_visualize_toulligqc_summary.R     # ONT QC report visualization
 │       ├── 07_generate_cpg_stats.R              # cpg_stats_methylbench.tab (input for 08)
@@ -270,7 +271,7 @@ Optional variables:
 | `SKIP` | – | steps to skip, e.g. `SKIP="unpaired downsampling"` |
 | `GDMR_BED` | `data/imprinted_gDMRs_hg38.bed` | gDMR list for script 17 |
 
-Step names: `matrices`, `cpg_stats`, `qc`, `correlation`, `density`, `pca`, `common_set`, `dss`, `unpaired`, `downsampling`, `annotation_CpG`, `annotation_DMR`, `dmr_probe_density`, `coverage_context`, `imprinting`.
+Step names: `matrices`, `cpg_stats`, `qc`, `correlation`, `density`, `pca`, `common_set`, `dss`, `unpaired`, `unsmoothed`, `sensitivity_summary`, `downsampling`, `annotation_CpG`, `annotation_DMR`, `dmr_probe_density`, `coverage_context`, `imprinting`.
 
 ### Option B – individual steps
 
@@ -285,7 +286,7 @@ export STATS=/path/to/stats
 export OUT=/path/to/results
 export N_REPS=5
 
-mkdir -p "$OUT"/{figures,figures_unpaired,diff_meth,dmr_dss,dmr_dss_unpaired,downsampling,annotation_enrichment,dmr_density,coverage_context,imprinting}
+mkdir -p "$OUT"/{figures,figures_unpaired,figures_unsmoothed,diff_meth,dmr_dss,dmr_dss_unpaired,dmr_dss_unsmoothed,downsampling,annotation_enrichment,dmr_density,coverage_context,imprinting}
 
 # Figure 3, Suppl. Figure 1, Suppl. Table S4 – QC and per-CpG coverage uniformity
 Rscript scripts/R/08_qc_visualization.R \
@@ -335,6 +336,19 @@ Rscript scripts/R/13_DMR_DSS_analysis.R \
   --outdir   "$OUT/figures_unpaired/" \
   --datadir  "$OUT/dmr_dss_unpaired/" \
   --unpaired
+
+# Suppl. Table S7 – sensitivity run without DSS smoothing (tables only)
+Rscript scripts/R/13_DMR_DSS_analysis.R \
+  --seq_path "$DATA/ALL_without_EPIC.csv" \
+  --all_path "$DATA/ALL.csv" \
+  --outdir   "$OUT/figures_unsmoothed/" \
+  --datadir  "$OUT/dmr_dss_unsmoothed/" \
+  --no_smoothing
+
+# Suppl. Table S7 – primary run versus sensitivity runs
+python3 scripts/python/compare_dss_runs.py \
+  --run primary="$OUT/dmr_dss" --run unsmoothed="$OUT/dmr_dss_unsmoothed" \
+  --run unpaired="$OUT/dmr_dss_unpaired" -o "$OUT/dss_sensitivity_summary.tsv"
 
 # Suppl. Figure 9, Suppl. Table S8 – depth-matched sensitivity analysis
 # (reads BSseq_Tier1.rds, Tier1_DML.rds, Tier1_DMR.rds from the paired run)
@@ -398,6 +412,8 @@ Rscript scripts/R/17_imprinted_regions.R \
 | `$OUT/diff_meth/` | `DeltaBeta_common_set.csv`, `DeltaBeta_pairwise_correlation.csv` (Figure 7A), `Variances.csv` |
 | `$OUT/dmr_dss/` | Tier 1/2 consensus sets, BSseq objects, DML/DMC/DMR tables, Jaccard and AUC tables |
 | `$OUT/dmr_dss_unpaired/` | the same tables without the subject term (Suppl. Table S7) |
+| `$OUT/dmr_dss_unsmoothed/` | the same tables without DSS smoothing (Suppl. Table S7) |
+| `$OUT/dss_sensitivity_summary.tsv` | primary run versus sensitivity runs (`scripts/python/compare_dss_runs.py`; Suppl. Table S7) |
 | `$OUT/downsampling/` | per-replicate results, `Table_S5_downsampling_*.tsv` |
 | `$OUT/annotation_enrichment/` | `annotation_enrichment_{genecentric,cpgstructural}_{CpG,DMR}_{Tier1,Tier2}.tsv` (Suppl. Tables S9/S10, Additional file 1) |
 | `$OUT/dmr_density/` | `TableS11A`–`TableS11E_*.tsv` (Suppl. Table S11) |

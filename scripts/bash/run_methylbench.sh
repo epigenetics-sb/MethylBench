@@ -67,7 +67,7 @@ if [[ -n "${CALLS_SHEET:-}" || -n "${SAMPLESHEET:-}" || -n "${EPIC_TSV:-}" ]]; t
   FROM_CALLS=1
 fi
 
-mkdir -p "$DATA" "$STATS" "$OUT"/{figures,figures_unpaired,diff_meth,dmr_dss,dmr_dss_unpaired,downsampling,annotation_enrichment,dmr_density,coverage_context,imprinting,logs}
+mkdir -p "$DATA" "$STATS" "$OUT"/{figures,figures_unpaired,figures_unsmoothed,diff_meth,dmr_dss,dmr_dss_unpaired,dmr_dss_unsmoothed,downsampling,annotation_enrichment,dmr_density,coverage_context,imprinting,logs}
 
 # ---- helper -----------------------------------------------------------------
 run_step() {
@@ -170,6 +170,20 @@ run_step unpaired \
     --outdir   "$OUT/figures_unpaired/" \
     --datadir  "$OUT/dmr_dss_unpaired/" \
     --unpaired
+
+# ---- Suppl. Table S7 - sensitivity run without DSS smoothing (tables only) --
+run_step unsmoothed \
+  Rscript scripts/R/13_DMR_DSS_analysis.R \
+    --seq_path "$DATA/ALL_without_EPIC.csv" \
+    --all_path "$DATA/ALL.csv" \
+    --outdir   "$OUT/figures_unsmoothed/" \
+    --datadir  "$OUT/dmr_dss_unsmoothed/" \
+    --no_smoothing
+
+run_step sensitivity_summary \
+  python3 scripts/python/compare_dss_runs.py \
+    --run primary="$OUT/dmr_dss" --run unsmoothed="$OUT/dmr_dss_unsmoothed" \
+    --run unpaired="$OUT/dmr_dss_unpaired" -o "$OUT/dss_sensitivity_summary.tsv"
 
 # ---- Suppl. Figure 9, Suppl. Table S8 - depth-matched sensitivity -----------
 # needs BSseq_Tier1.rds, Tier1_DML.rds and Tier1_DMR.rds from step 'dss'

@@ -6,12 +6,16 @@
 # sets, tests Blood vs. Fibroblast per platform with a paired Beta-Binomial
 # model (DSS; EPIC: paired limma on M-values), calls DMRs with DMRcate and
 # summarizes cross-platform concordance.
-# Figures 8, 9A/B/D; Suppl. Figures 8 and 10; with --unpaired: Suppl. Table S7.
+# Figures 8, 9A/B/D; Suppl. Figures 8 and 10; with --unpaired or
+# --no_smoothing: Suppl. Table S7 (sensitivity runs, tables only).
+# Primary analysis: DSS with moving-average smoothing over 500 bp.
+# --no_smoothing fits DSS without smoothing, so that DMRcate receives
+# unsmoothed per-CpG statistics, as for EPIC (limma).
 #
 # Usage:
 #   Rscript scripts/R/13_DMR_DSS_analysis.R \
 #     --seq_path ALL_without_EPIC.csv --all_path ALL.csv \
-#     --outdir results/figures/ --datadir results/dmr_dss/ [--unpaired]
+#     --outdir results/figures/ --datadir results/dmr_dss/ [--unpaired] [--no_smoothing]
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -111,6 +115,11 @@ option_list <- list(
               action  = "store_true",
               default = FALSE,
               help    = "Sensitivity run: omit the subject term (design ~ group). Only DML/DMC/DMR tables are written; figures are skipped."
+  ),
+  make_option("--no_smoothing",
+              action  = "store_true",
+              default = FALSE,
+              help    = "Sensitivity run: DSS without smoothing (DMRcate then receives unsmoothed statistics). Only DML/DMC/DMR tables are written; figures are skipped."
   )
 )
 
@@ -262,7 +271,7 @@ compute_delta_beta_bsseq <- function(bs_combined, blood_samples, fibro_samples) 
 }
 
 # Paired Beta-Binomial test (design ~ subject + group, moving-average smoothing
-# over 500 bp). --unpaired drops the subject term.
+# over 500 bp). --unpaired drops the subject term, --no_smoothing the smoothing.
 run_dss_tissue_paired <- function(bs_blood, bs_fibro) {
   blood_samples <- sampleNames(bs_blood)
   fibro_samples <- sampleNames(bs_fibro)
@@ -280,7 +289,7 @@ run_dss_tissue_paired <- function(bs_blood, bs_fibro) {
 
   model_formula <- if (opt$unpaired) ~ group else ~ subject + group
   fit <- DMLfit.multiFactor(bs_combined, design = design, formula = model_formula,
-                            smoothing = TRUE, smoothing.span = 500)
+                            smoothing = !opt$no_smoothing, smoothing.span = 500)
   test <- DMLtest.multiFactor(fit, coef = "groupBlood")
 
   delta_beta <- compute_delta_beta_bsseq(bs_combined, blood_samples, fibro_samples)
@@ -453,8 +462,9 @@ run_tier <- function(bsseq_list, tier_label) {
     key_blood <- paste0(method, "_Blood")
     key_fibro <- paste0(method, "_Fibro")
 
-    cat(sprintf("  [%s | %s] DMLtest.multiFactor (%s)...\n", tier_label, method,
-                if (opt$unpaired) "unpaired: ~group" else "paired: ~subject+group"))
+    cat(sprintf("  [%s | %s] DMLtest.multiFactor (%s%s)...\n", tier_label, method,
+                if (opt$unpaired) "unpaired: ~group" else "paired: ~subject+group",
+                if (opt$no_smoothing) ", no smoothing" else ""))
 
     test_df <- run_dss_tissue_paired(bsseq_list[[key_blood]], bsseq_list[[key_fibro]])
     dml_list[[method]] <- test_df
@@ -561,9 +571,9 @@ seq_t2$dmr[["EPIC"]] <- epic_dmr
 saveRDS(seq_t2$dml, file.path(opt$datadir, "Tier2_DML_withEPIC.rds"))
 saveRDS(seq_t2$dmr, file.path(opt$datadir, "Tier2_DMR_withEPIC.rds"))
 
-if (opt$unpaired) {
+if (opt$unpaired || opt$no_smoothing) {
   writeLines(capture.output(sessionInfo()), file.path(opt$datadir, "sessionInfo.txt"))
-  cat("\n--unpaired: DML/DMC/DMR tables written to ", normalizePath(opt$datadir),
+  cat("\nSensitivity run: DML/DMC/DMR tables written to ", normalizePath(opt$datadir),
       "; figures skipped.\n", sep = "")
   quit(save = "no", status = 0)
 }

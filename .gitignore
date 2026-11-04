@@ -1,2 +1,3 @@
 *.bam\n*.fastq\n*.fastq.gz\n*.idat\ndata/\nresults/
 scripts/R/.Rhistory
+scripts/python/__pycache__/
