@@ -1,29 +1,34 @@
 #!/usr/bin/env bash
 # =============================================================================
-# MethylBench - run the complete R analysis (scripts 08-18) in one go
+# MethylBench - run the complete R analysis (scripts 07-18) in one go
 # =============================================================================
 # Usage (from the repository root):
 #
 #   conda activate methylbench
-#   export DATA=/path/to/matrices      # ALL.csv, ALL_without_EPIC.csv, ... (07b_build_matrices.R)
-#   export STATS=/path/to/stats        # cpg_stats_methylbench.tab, qc_stats_methylbench.tab
+#   export DATA=/path/to/matrices      # ALL.csv, ALL_without_EPIC.csv, ... (written by 07b)
+#   export STATS=/path/to/stats        # cpg_stats_methylbench.tab (written by 07),
+#                                      # qc_stats_methylbench.tab (compiled manually)
 #   export OUT=/path/to/results
+#   export CALLS_SHEET=calls.csv       # per-platform calls: columns Sample, Method, File
+#   export SAMPLESHEET=samplesheet.csv # columns Sample, Sampleset
+#   export EPIC_TSV=EPIC_blood_fibro.csv,EPIC_GIAB.csv   # EPIC beta matrices (0-based)
 #   bash scripts/bash/run_methylbench.sh
+#
+# With CALLS_SHEET, SAMPLESHEET and EPIC_TSV set, the run starts from the
+# per-platform calls (WGEC, TWIST: Bismark coverage2cytosine --merge_CpG;
+# RRBS: methylation table (.methylation.tab); ONT: modkit pileup; PacBio:
+# pb-CpG-tools; formats: README, "Inputs for script 17") and first builds the matrices
+# (step 'matrices', 07b) and cpg_stats_methylbench.tab (step 'cpg_stats', 07);
+# script 17 (step 'imprinting') reads the same calls. Without them, the
+# matrices and statistics already in $DATA and $STATS are used and script 17
+# is skipped.
 #
 # Optional environment variables:
 #   N_REPS   downsampling replicates for script 14   [default: 5, as in the paper]
 #   CORES    parallel workers for script 14           [default: 4]
 #   SKIP     space-separated step names to skip, e.g. SKIP="downsampling unpaired"
-#
-# Script 17 (imprinted gDMRs) needs per-platform methylation calls instead of
-# the merged matrices and runs only if SAMPLESHEET and CALLS_SHEET or CALLS_DIR are set:
-#   CALLS_SHEET  table with columns Sample, Method, File (as for 07b_build_matrices.R), or
-#   CALLS_DIR    directory with per-platform calls, <CALLS_DIR>/<METHOD>/<Sample><suffix>
-#   SAMPLESHEET  sample sheet (comma-separated; columns Sample, Sampleset)
-#   GDMR_BED     BED file of imprinted gDMRs (hg38, 0-based; chr, start, end, name)
-#                [default: data/imprinted_gDMRs_hg38.bed, shipped with the repository]
-#   EPIC_TSV     optional: comma-separated EPIC beta matrices (chr/start or coord, 0-based),
-#                e.g. the files used for 07b_build_matrices.R
+#   GDMR_BED BED file of imprinted gDMRs (hg38, 0-based; chr, start, end, name)
+#            [default: data/imprinted_gDMRs_hg38.bed, shipped with the repository]
 #
 # Every step writes a log to $OUT/logs/<step>.log. The script stops at the
 # first failing step (set -e) and reports which one failed.
@@ -48,22 +53,21 @@ if [[ ! -f scripts/R/utils/helpers.R ]]; then
   exit 1
 fi
 
-required_inputs=(
-  "$DATA/ALL.csv"
-  "$DATA/ALL_without_EPIC.csv"
-  "$DATA/Blood_without_EPIC.csv"
-  "$DATA/Fibro_without_EPIC.csv"
-  "$DATA/GIAB_without_EPIC.csv"
-  "$STATS/cpg_stats_methylbench.tab"
-  "$STATS/qc_stats_methylbench.tab"
-)
-missing=0
-for f in "${required_inputs[@]}"; do
-  if [[ ! -s "$f" ]]; then echo "ERROR: missing input file: $f" >&2; missing=1; fi
-done
-[[ $missing -eq 0 ]] || { echo "See README, section 'Input data', for the expected files." >&2; exit 1; }
+FROM_CALLS=0
+if [[ -n "${CALLS_SHEET:-}" || -n "${SAMPLESHEET:-}" || -n "${EPIC_TSV:-}" ]]; then
+  for v in CALLS_SHEET SAMPLESHEET EPIC_TSV; do
+    if [[ -z "${!v:-}" ]]; then
+      echo "ERROR: to start from the per-platform calls, set CALLS_SHEET, SAMPLESHEET and EPIC_TSV (\$$v is missing)." >&2
+      exit 1
+    fi
+  done
+  for f in "$CALLS_SHEET" "$SAMPLESHEET" ${EPIC_TSV//,/ }; do
+    [[ -s "$f" ]] || { echo "ERROR: missing input file: $f" >&2; exit 1; }
+  done
+  FROM_CALLS=1
+fi
 
-mkdir -p "$OUT"/{figures,figures_unpaired,diff_meth,dmr_dss,dmr_dss_unpaired,downsampling,annotation_enrichment,dmr_density,imprinting,logs}
+mkdir -p "$DATA" "$STATS" "$OUT"/{figures,figures_unpaired,diff_meth,dmr_dss,dmr_dss_unpaired,downsampling,annotation_enrichment,dmr_density,coverage_context,imprinting,logs}
 
 # ---- helper -----------------------------------------------------------------
 run_step() {
@@ -79,6 +83,37 @@ run_step() {
     exit 1
   fi
 }
+
+# ---- Merged matrices and cpg_stats_methylbench.tab from the per-platform calls
+if [[ $FROM_CALLS -eq 1 ]]; then
+  run_step matrices \
+    Rscript scripts/R/07b_build_matrices.R \
+      --samplesheet "$SAMPLESHEET" \
+      --calls_sheet "$CALLS_SHEET" \
+      --epic_path   "$EPIC_TSV" \
+      --outdir      "$DATA/"
+
+  run_step cpg_stats \
+    Rscript scripts/R/07_generate_cpg_stats.R \
+      --samplesheet "$SAMPLESHEET" \
+      --calls_sheet "$CALLS_SHEET" \
+      --outdir      "$STATS/"
+fi
+
+required_inputs=(
+  "$DATA/ALL.csv"
+  "$DATA/ALL_without_EPIC.csv"
+  "$DATA/Blood_without_EPIC.csv"
+  "$DATA/Fibro_without_EPIC.csv"
+  "$DATA/GIAB_without_EPIC.csv"
+  "$STATS/cpg_stats_methylbench.tab"
+  "$STATS/qc_stats_methylbench.tab"
+)
+missing=0
+for f in "${required_inputs[@]}"; do
+  if [[ ! -s "$f" ]]; then echo "ERROR: missing input file: $f" >&2; missing=1; fi
+done
+[[ $missing -eq 0 ]] || { echo "See README, section 'Input data', for the expected files." >&2; exit 1; }
 
 # ---- Figure 3, Suppl. Figure 1, Suppl. Table S4 - QC and coverage uniformity -
 run_step qc \
@@ -180,25 +215,22 @@ run_step coverage_context \
     --outdir   "$OUT/figures/" \
     --datadir  "$OUT/coverage_context/"
 
-# ---- Suppl. Figure 4, Suppl. Table S6 - imprinted gDMRs (optional) ---------
-# needs per-platform calls (CALLS_DIR) and SAMPLESHEET; GDMR_BED defaults to the
-# gDMR list shipped with the repository. Uses the DML results from step 'dss'
-# for the DMCs located in gDMRs (Suppl. Table S6E).
+# ---- Suppl. Figure 4, Suppl. Table S6 - imprinted gDMRs --------------------
+# reads the per-platform calls (CALLS_SHEET) instead of the matrices; uses the
+# DML results from step 'dss' for the DMCs located in gDMRs (Suppl. Table S6E).
 GDMR_BED="${GDMR_BED:-data/imprinted_gDMRs_hg38.bed}"
-if [[ ( -n "${CALLS_SHEET:-}" || -n "${CALLS_DIR:-}" ) && -n "${SAMPLESHEET:-}" && -f "$GDMR_BED" ]]; then
-  if [[ -n "${CALLS_SHEET:-}" ]]; then calls_args=(--calls_sheet "$CALLS_SHEET"); else calls_args=(--calls_dir "$CALLS_DIR"); fi
-  imprint_args=(
-    --samplesheet "$SAMPLESHEET"
-    "${calls_args[@]}"
-    --gdmr_bed    "$GDMR_BED"
-    --dss_dir     "$OUT/dmr_dss/"
-    --outdir      "$OUT/figures/"
-    --datadir     "$OUT/imprinting/"
-  )
-  if [[ -n "${EPIC_TSV:-}" ]]; then imprint_args+=(--epic_path "$EPIC_TSV"); fi
-  run_step imprinting Rscript scripts/R/17_imprinted_regions.R "${imprint_args[@]}"
+if [[ $FROM_CALLS -eq 1 && -f "$GDMR_BED" ]]; then
+  run_step imprinting \
+    Rscript scripts/R/17_imprinted_regions.R \
+      --samplesheet "$SAMPLESHEET" \
+      --calls_sheet "$CALLS_SHEET" \
+      --epic_path   "$EPIC_TSV" \
+      --gdmr_bed    "$GDMR_BED" \
+      --dss_dir     "$OUT/dmr_dss/" \
+      --outdir      "$OUT/figures/" \
+      --datadir     "$OUT/imprinting/"
 else
-  echo "[skip] imprinting (set SAMPLESHEET and CALLS_SHEET or CALLS_DIR, and GDMR_BED if not using data/imprinted_gDMRs_hg38.bed, to run script 17)"
+  echo "[skip] imprinting (needs CALLS_SHEET, SAMPLESHEET, EPIC_TSV and GDMR_BED)"
 fi
 
 echo "[$(date '+%H:%M:%S')] MethylBench analysis finished. Results: $OUT"

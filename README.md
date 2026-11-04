@@ -36,7 +36,7 @@ MethylBench/
 │   │   ├── 02_toulligqc.sh                      # ToulligQC: QC of ONT data, intermediary report files
 │   │   ├── 03_pbcpgtools.sh                     # pb-CpG-tools: extract methylation calls from PacBio alignments
 │   │   ├── 04_methylseq.sh                      # nf-core/methylseq: short-read processing (RRBS, WGEC, TWIST)
-│   │   └── run_methylbench.sh                   # runs the complete R analysis (scripts 08–18) in one go
+│   │   └── run_methylbench.sh                   # runs the complete R analysis (scripts 07–18) in one go
 │   ├── python/
 │   │   └── 05_parse_toulligqc.py                # summarize ToulligQC .data files into one QC table
 │   └── R/
@@ -207,12 +207,12 @@ Per-sample × per-method QC metrics, assembled from the QC reports of each tool:
 
 ### Inputs for script 17 (imprinted gDMRs)
 
-Script 17 evaluates each platform on its own CpGs and therefore reads the per-platform methylation calls rather than the merged matrices. It is optional in `run_methylbench.sh` and runs only if `SAMPLESHEET` and `CALLS_SHEET` (or `CALLS_DIR`) are set; `GDMR_BED` defaults to `data/imprinted_gDMRs_hg38.bed`.
+Script 17 evaluates each platform on its own CpGs and therefore reads the per-platform methylation calls rather than the merged matrices. In `run_methylbench.sh` it runs when the pipeline starts from the per-platform calls (`CALLS_SHEET`, `SAMPLESHEET`, `EPIC_TSV`); `GDMR_BED` defaults to `data/imprinted_gDMRs_hg38.bed`.
 
 | Input | Variable / option | Format |
 |---|---|---|
 | Per-platform calls | `CALLS_SHEET` / `--calls_sheet` | table with columns `Sample`, `Method`, `File`, one row per platform and sample (the same file as for `07b_build_matrices.R` and `07_generate_cpg_stats.R`) |
-| … or | `CALLS_DIR` / `--calls_dir` | `<CALLS_DIR>/<METHOD>/<Sample><suffix>`, one file per platform and sample (see below) |
+| … or | `--calls_dir` (not in `run_methylbench.sh`) | `<calls_dir>/<METHOD>/<Sample><suffix>`, one file per platform and sample (see below) |
 | Sample sheet | `SAMPLESHEET` / `--samplesheet` | comma- or tab-separated, columns `Sample` (e.g. `Blood1`, `GIAB1`) and `Sampleset` (`Blood`, `Fibroblast`, `GIAB`) |
 | Imprinted gDMRs | `GDMR_BED` / `--gdmr_bed` | BED, hg38, 0-based; columns `chr`, `start`, `end`, `name`; default in `run_methylbench.sh`: `data/imprinted_gDMRs_hg38.bed` (see below) |
 | EPIC (optional) | `EPIC_TSV` / `--epic_path` | comma-separated list of EPIC β-matrices (tab or comma) with a `coord` column (`chr:pos`) or `chr` and `start` columns, 0-based positions as in the merged matrices (`--epic_one_based` for 1-based files), and one column `EPIC_<Sample>` per sample; the same files as for `07b_build_matrices.R` can be used |
@@ -243,15 +243,20 @@ Run from the repository root:
 ```bash
 conda activate methylbench
 
-export DATA=/path/to/matrices        # the five .csv files described above
-export STATS=/path/to/stats          # cpg_stats_methylbench.tab, qc_stats_methylbench.tab
+export DATA=/path/to/matrices        # the five .csv files described above (written by 07b)
+export STATS=/path/to/stats          # cpg_stats_methylbench.tab (written by 07), qc_stats_methylbench.tab
 export OUT=/path/to/results
+export CALLS_SHEET=calls.csv         # per-platform calls (columns Sample, Method, File)
+export SAMPLESHEET=samplesheet.csv   # columns Sample, Sampleset
+export EPIC_TSV=EPIC_blood_fibro.csv,EPIC_GIAB.csv
 
 bash scripts/bash/run_methylbench.sh
 ```
 
 The script:
-- checks that `$DATA`, `$STATS` and `$OUT` are set and that all seven input files exist;
+- checks that `$DATA`, `$STATS` and `$OUT` are set;
+- with `CALLS_SHEET`, `SAMPLESHEET` and `EPIC_TSV`, builds the five matrices (`07b_build_matrices.R`) and `cpg_stats_methylbench.tab` (`07_generate_cpg_stats.R`) from the per-platform calls; without them, uses the files already in `$DATA` and `$STATS` and skips script 17;
+- checks that all seven input files exist (`qc_stats_methylbench.tab` is compiled manually, see above);
 - creates the output folders;
 - runs every step in the correct order, writing one log per step to `$OUT/logs/<step>.log`;
 - stops at the first failing step.
@@ -263,11 +268,9 @@ Optional variables:
 | `N_REPS` | `5` | downsampling replicates (script 14), as in the paper |
 | `CORES` | `4` | parallel workers (script 14) |
 | `SKIP` | – | steps to skip, e.g. `SKIP="unpaired downsampling"` |
-| `CALLS_SHEET` (or `CALLS_DIR`), `SAMPLESHEET` | – | inputs for script 17; the step `imprinting` is skipped if they are missing |
 | `GDMR_BED` | `data/imprinted_gDMRs_hg38.bed` | gDMR list for script 17 |
-| `EPIC_TSV` | – | optional EPIC matrices for script 17 |
 
-Step names: `qc`, `correlation`, `density`, `pca`, `common_set`, `dss`, `unpaired`, `downsampling`, `annotation_CpG`, `annotation_DMR`, `dmr_probe_density`, `coverage_context`, `imprinting`.
+Step names: `matrices`, `cpg_stats`, `qc`, `correlation`, `density`, `pca`, `common_set`, `dss`, `unpaired`, `downsampling`, `annotation_CpG`, `annotation_DMR`, `dmr_probe_density`, `coverage_context`, `imprinting`.
 
 ### Option B – individual steps
 
