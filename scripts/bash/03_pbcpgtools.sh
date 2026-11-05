@@ -3,6 +3,8 @@
 # MethylBench - PacBio methylation calling (pb-CpG-tools)
 # =============================================================================
 # Per-CpG methylation scores from pbmm2-aligned HiFi BAM files (GRCh38).
+# pb-CpG-tools v2.3.2 (as used for the manuscript), model-based pileup with
+# pileup_calling_model.v1.
 # Environment: methylbench-pacbio (Linux x86_64 only)
 #
 # Usage:

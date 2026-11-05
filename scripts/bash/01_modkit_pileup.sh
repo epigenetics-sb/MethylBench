@@ -3,7 +3,11 @@
 # MethylBench - ONT methylation calling (modkit pileup)
 # =============================================================================
 # Per-CpG 5mC calls from aligned ONT BAM files (GRCh38), strands combined.
-# Environment: methylbench-ont (modkit >= 0.6.1)
+# 5mC and 5hmC are both requested, so that, for data with separate 5hmC calls
+# (blood and fibroblasts, R9.4.1), reads called as 5hmC count as valid but not
+# 5mC-modified in the 5mC rows (code m) used downstream; for 5mC-only data
+# (GIAB, R10.4.1) only 5mC rows are written.
+# Environment: methylbench-ont (modkit 0.6.1, as used for the manuscript)
 #
 # Usage:
 #   bash scripts/bash/01_modkit_pileup.sh <sample_id> <bam_file> <output_dir>
@@ -25,7 +29,7 @@ mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}"
 
 modkit pileup \
     --reference "${REFERENCE}" \
-    --modified-bases 5mC \
+    --modified-bases 5mC 5hmC \
     --cpg \
     --combine-strands \
     --log-filepath "${LOG_FILE}" \
