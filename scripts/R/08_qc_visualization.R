@@ -74,24 +74,31 @@ stats[, Sampleset_numbers := factor(Sampleset_numbers, levels = SAMPLESET_ORDER)
 # ---- Overlapping CpGs per coverage filter -----------------------------------
 cat("[1/10] Plotting Overlapping CpGs...\n")
 
+# Select the threshold columns by name (Cov_0, Cov_5, ..., Cov_40, as written
+# by script 07) and order them numerically; positional selection with
+# alphabetical ordering mislabelled the thresholds.
+cov_cols <- grep("^Cov_[0-9]+$", names(cpg.stats), value = TRUE)
+cov_thr  <- as.integer(sub("^Cov_", "", cov_cols))
+cov_cols <- cov_cols[order(cov_thr)]
+cov_thr  <- sort(cov_thr)
+
 to.plot <- melt(
-  cpg.stats[, c(1, 3, 4, 5, 6, 7, 8)],
+  cpg.stats[, c("Sample", cov_cols), with = FALSE],
   id.vars = "Sample"
 )
-to.plot[, variable := as.character(variable)]
-to.plot[, Coverage := substr(variable, 5, nchar(variable))]
-
-x.labels <- c("None", "10x", "15x", "20x", "30x", "40x")
+to.plot[, Coverage := factor(
+  ifelse(variable == "Cov_0", "None", paste0(sub("^Cov_", "", variable), "x")),
+  levels = ifelse(cov_thr == 0, "None", paste0(cov_thr, "x"))
+)]
 
 p_cpg <- ggplot(to.plot, aes(x = Coverage, y = value, color = Sample, fill = Sample)) +
   geom_point(size = 4) +
   geom_line(aes(group = Sample)) +
   scale_y_log10(
-    labels = c("0", "1000", "10000", "0.1M", "1M", "10M"),
-    breaks = c(0, 1e3, 1e4, 1e5, 1e6, 1e7)
+    labels = c("1000", "10000", "0.1M", "1M", "10M"),
+    breaks = c(1e3, 1e4, 1e5, 1e6, 1e7)
   ) +
   scale_color_manual(values = C12) +
-  scale_x_discrete(labels = x.labels) +
   labs(
     title = "Number of overlapping CpGs per Coverage filter",
     x     = "Coverage Filter",
@@ -125,7 +132,7 @@ p_meth_focused <- ggplot(
   labs(
     title = "Mean Methylation",
     x     = "",
-    y     = "Methylation[%]"
+    y     = "Mean methylation (beta)"
   ) +
   theme_bw() +
   theme(
@@ -163,11 +170,10 @@ p_meth_cov <- ggplot(
   facet_grid(Coverage ~ Sampleset_numbers) +
   scale_fill_manual(values  = col.vec) +
   scale_color_manual(values = col.vec) +
-  ylim(c(0, 1)) +
   labs(
     title = "Mean Methylation",
     x     = "",
-    y     = "Methylation Value"
+    y     = "Mean methylation (beta)"
   ) +
   guides(shape = guide_legend(title = "Coverage\nFilter")) +
   theme_bw() +
